@@ -510,8 +510,10 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
   return (
     <>
       <TopBar role="관리자" name={admin.name} onLogout={onLogout} />
-      <button onClick={onViewMember} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "11px 0", marginBottom: 14, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><User size={15} /> 수련자 화면 보기 (내 수업·기록)</button>
-      <TabBar tabs={tabs} tab={tab} setTab={setTab} />
+      {tab === "dashboard"
+        ? <button onClick={onViewMember} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "11px 0", marginBottom: 14, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><User size={15} /> 수련자 화면 보기 (내 수업·기록)</button>
+        : <button onClick={() => setTab("dashboard")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> 홈</button>}
+      {tab !== "dashboard" && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       {content}
     </>
   );
@@ -1850,7 +1852,8 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
         </div>
       )}
       <TopBar role={asAdmin ? "지도진" : "수련자"} name={`${star}${me.name} · ${me.no}`} onLogout={onLogout} logoutLabel={asAdmin ? "관리자로" : "로그아웃"} />
-      <TabBar tabs={tabs} tab={tab} setTab={setTab} />
+      {tab !== "home" && <button onClick={() => setTab("home")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> 홈</button>}
+      {tab !== "home" && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <NoticeMarquee notices={data.notices} />
       {tab === "home" && (
         <div>
@@ -1885,6 +1888,34 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
               <InfoRow k="회원번호" v={me.no} mono />
               <InfoRow k="상태" v={me.status} />
               <InfoRow k="등록 수업" v={(me.enrollments || []).join(", ") || "없음"} />
+            </Panel>
+          )}
+          {!isOut && (
+            <Panel title="가온태권도장 소개">
+              <p style={{ fontSize: 13.5, color: "#e4e4e8", lineHeight: 1.75, margin: 0 }}>
+                성인·외국인만을 대상으로 운영하는 태권도장! 현재 약 <b style={{ color: C.gold }}>100여 명의 성인 회원</b>들이 아이들 없이 태권도 수련을 하고 있는 <b style={{ color: C.gold }}>국내 유일 성인 전문 태권도장</b>입니다.
+              </p>
+              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 9 }}>
+                {["성인·외국인 전문 취미 태권도장", "단증 취득 / 지도자 자격증 취득", "태권도학과 진학 입시 준비", "각종 생활체육 태권도 대회 참가", "품새 / 겨루기 / 시범 전문 팀 운영"].map((t) => (
+                  <div key={t} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: "#dadae0" }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: C.gold, flexShrink: 0 }} />{t}
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+          {!isOut && (
+            <Panel title="수련 시간표">
+              <img src="/timetable.png" alt="가온태권도장 수련 시간표" style={{ width: "100%", borderRadius: 10, display: "block" }} />
+            </Panel>
+          )}
+          {!isOut && (
+            <Panel title="오시는 길 · 상담 문의">
+              <InfoRow k="상담 문의" v="010-8984-3725" />
+              <InfoRow k="주소" v="서울 서대문구 신촌로 61 (신촌역 1번 출구 도보 4분)" />
+              <InfoRow k="인스타그램" v="@gaon_tkd" />
+              <InfoRow k="네이버카페" v="cafe.naver.com/gaontkd" />
+              <InfoRow k="카카오톡" v="gaon-tkd" />
             </Panel>
           )}
           <Panel title="공지사항">
