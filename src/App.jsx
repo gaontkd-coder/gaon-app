@@ -490,7 +490,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
   ];
   const content = (
     <>
-      {tab === "dashboard" && <Dashboard data={data} wide={wide} />}
+      {tab === "dashboard" && <Dashboard data={data} wide={wide} setTab={setTab} role={admin.role} />}
       {tab === "classes" && <ClassesAdmin data={data} persist={persist} kind="수업" />}
       {tab === "members" && <MembersAdmin data={data} persist={persist} />}
       {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" />}
@@ -543,7 +543,7 @@ function Sidebar({ tabs, tab, setTab, admin, onLogout, onViewMember }) {
   );
 }
 
-function Dashboard({ data, wide }) {
+function Dashboard({ data, wide, setTab, role }) {
   const active = data.members.filter((x) => x.status === "활동중");
   const counts = { 활동중: 0, 정지중: 0, 탈퇴: 0 };
   data.members.forEach((x) => counts[x.status]++);
@@ -553,8 +553,36 @@ function Dashboard({ data, wide }) {
   const maxT = Math.max(1, ...byTeam.map((b) => b.n));
   const totalTrain = data.members.reduce((n, m) => n + trainTotal(data, m.id), 0);
 
+  const big = [
+    { id: "members", label: "회원 관리", sub: "명단 · 수강권 · 상품권", Ic: Users },
+    { id: "classes", label: "수업", sub: "시간표 · 출석부", Ic: BookOpen },
+  ];
+  const small = [
+    { id: "events", label: "이벤트", Ic: Trophy },
+    { id: "notice", label: "공지", Ic: Megaphone },
+    { id: "training", label: "운영", Ic: Flame },
+    ...(role === "super" ? [{ id: "accounts", label: "관리자", Ic: KeyRound }] : []),
+  ];
+
   return (
     <div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+        {big.map(({ id, label, sub, Ic }) => (
+          <button key={id} onClick={() => setTab(id)} style={{ flex: 1, textAlign: "left", background: "linear-gradient(135deg,#2a2410,#14140f)", border: "1px solid #5a4a22", borderRadius: 16, padding: 15, height: 98, display: "flex", flexDirection: "column", justifyContent: "space-between", cursor: "pointer" }}>
+            <Ic size={24} color={C.gold} />
+            <div><div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{label}</div><div style={{ fontSize: 10, color: C.dim2, marginTop: 2 }}>{sub}</div></div>
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9, marginBottom: 18 }}>
+        {small.map(({ id, label, Ic }) => (
+          <button key={id} onClick={() => setTab(id)} style={{ textAlign: "center", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, height: 54, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic size={21} color={C.gold} /></div>
+            <div style={{ fontSize: 10, color: "#cfcfd6", marginTop: 5 }}>{label}</div>
+          </button>
+        ))}
+      </div>
+
       <Grid3>
         <Stat label="활동중" value={counts.활동중} unit="명" accent />
         <Stat label="정지중" value={counts.정지중} unit="명" />
@@ -1840,6 +1868,16 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
                   <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>이번달</div>
                 </div>
               </div>
+            </div>
+          )}
+          {!isOut && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 9, marginBottom: 16 }}>
+              {[["reserve", "수업 신청", CalendarCheck], ["events", "이벤트", Trophy], ["mine", "내 기록", BookOpen]].map(([id, label, Ic]) => (
+                <button key={id} onClick={() => setTab(id)} style={{ textAlign: "center", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+                  <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, height: 64, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic size={23} color={C.gold} /></div>
+                  <div style={{ fontSize: 11, color: "#cfcfd6", marginTop: 5 }}>{label}</div>
+                </button>
+              ))}
             </div>
           )}
           {!isOut && (
