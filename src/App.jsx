@@ -50,7 +50,7 @@ const STATUSES = ["활동중", "정지중", "탈퇴"];
 const ADMIN_STATUSES = ["활동중", "휴식중", "정지", "탈퇴"];
 const ADMIN_ROLES = [["super", "관장·임원"], ["staff", "사범"]];
 const roleLabel = (r) => (r === "super" ? "관장·임원" : "사범");
-const LESSON_NAMES = ["오전 정규반", "오후 정규반", "통합반", "시범단 훈련", "겨루기팀 훈련", "품새팀 훈련"];
+const LESSON_NAMES = ["종합수련 오전반", "종합수련", "품새", "발차기", "겨루기기초", "시범발차기", "특별수련", "오전 정규반", "오후 정규반", "통합반", "시범단 훈련", "겨루기팀 훈련", "품새팀 훈련"];
 const EVENT_NAMES = ["승급심사", "태권도대회", "시범공연", "이벤트"];
 const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const KEY = "gaon:data:v3";
@@ -92,9 +92,17 @@ function findMemberByNo(members, input) {
 }
 const ym = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
+// 출석 값 호환: 옛 "출석" 문자열 또는 새 {st,g} 객체 모두 처리
+const attSt = (v) => (typeof v === "string" ? v : v?.st) || "";
+const attG = (v) => (typeof v === "string" ? "정규" : v?.g) || "정규";
+const ATT_GROUPS = ["정규", "시범단", "겨루기", "품새"];
 // 누적 / 월별 수련 횟수 (출석 기준)
-const trainTotal = (data, mid) => Object.values(data.attendance).reduce((n, day) => n + (day[mid] === "출석" ? 1 : 0), 0);
-const trainMonth = (data, mid, m = ym()) => Object.entries(data.attendance).reduce((n, [d, day]) => n + (d.startsWith(m) && day[mid] === "출석" ? 1 : 0), 0);
+const trainTotal = (data, mid) => Object.values(data.attendance).reduce((n, day) => n + (attSt(day[mid]) === "출석" ? 1 : 0), 0);
+const trainMonth = (data, mid, m = ym()) => Object.entries(data.attendance).reduce((n, [d, day]) => n + (d.startsWith(m) && attSt(day[mid]) === "출석" ? 1 : 0), 0);
+// 구분별 누적 횟수
+const trainByGroup = (data, mid, g) => Object.values(data.attendance).reduce((n, day) => n + (attSt(day[mid]) === "출석" && attG(day[mid]) === g ? 1 : 0), 0);
+// 구분별 월 횟수
+const trainGroupMonth = (data, mid, g, m) => Object.entries(data.attendance).reduce((n, [d, day]) => n + (d.startsWith(m) && attSt(day[mid]) === "출석" && attG(day[mid]) === g ? 1 : 0), 0);
 
 // 최근 N개월 키 ["2026-01", ...]
 function recentMonths(n) {
@@ -298,9 +306,23 @@ const SAMPLE = {
     { id: 1, kind: "수업", type: "weekly", day: 5, time: "20:30", targets: ["GDT(시범단)"], label: "시범단 훈련", desc: "금요일 20:30~22:00" },
     { id: 2, kind: "수업", type: "weekly", day: 6, time: "13:00", targets: ["GST(겨루기)"], label: "겨루기팀 훈련", desc: "토요일 13:00~16:30" },
     { id: 3, kind: "수업", type: "weekly", day: 0, time: "15:00", targets: ["GPT(품새)"], label: "품새팀 훈련", desc: "일요일 15:00~16:30" },
-    { id: 4, kind: "수업", type: "weekly", day: 2, time: "10:00", targets: ["오전"], label: "오전 정규반", desc: "" },
-    { id: 5, kind: "수업", type: "weekly", day: 1, time: "19:00", targets: ["오후"], label: "오후 정규반", desc: "" },
-    { id: 6, kind: "행사", type: "once", day: 0, date: "2026-06-28", time: "14:00", targets: ["오전", "오후", "통합"], label: "승급심사", desc: "6월 정기 승급심사. 도복·승급비 지참.", fields: ["현재 단/급", "응시 단/급", "비상 연락처"] },
+    { id: 4, kind: "수업", type: "weekly", day: 1, time: "11:00", targets: ["오전"], label: "종합수련 오전반", desc: "" },
+    { id: 5, kind: "수업", type: "weekly", day: 3, time: "11:00", targets: ["오전"], label: "종합수련 오전반", desc: "" },
+    { id: 6, kind: "수업", type: "weekly", day: 5, time: "11:00", targets: ["오전"], label: "종합수련 오전반", desc: "" },
+    { id: 7, kind: "수업", type: "weekly", day: 1, time: "17:30", targets: ["오후"], label: "품새", desc: "" },
+    { id: 8, kind: "수업", type: "weekly", day: 2, time: "17:30", targets: ["오후"], label: "발차기", desc: "" },
+    { id: 9, kind: "수업", type: "weekly", day: 3, time: "17:30", targets: ["오후"], label: "품새", desc: "" },
+    { id: 10, kind: "수업", type: "weekly", day: 4, time: "17:30", targets: ["오후"], label: "발차기", desc: "" },
+    { id: 11, kind: "수업", type: "weekly", day: 1, time: "19:00", targets: ["오후"], label: "발차기", desc: "" },
+    { id: 12, kind: "수업", type: "weekly", day: 2, time: "19:00", targets: ["오후"], label: "품새", desc: "" },
+    { id: 13, kind: "수업", type: "weekly", day: 3, time: "19:00", targets: ["오후"], label: "발차기", desc: "" },
+    { id: 14, kind: "수업", type: "weekly", day: 4, time: "19:00", targets: ["오후"], label: "품새", desc: "" },
+    { id: 15, kind: "수업", type: "weekly", day: 5, time: "18:30", targets: ["통합"], label: "종합수련", desc: "금요일 18:30~20:00" },
+    { id: 16, kind: "수업", type: "weekly", day: 1, time: "20:30", targets: ["오후"], label: "품새", desc: "" },
+    { id: 17, kind: "수업", type: "weekly", day: 2, time: "20:30", targets: ["오후"], label: "겨루기기초", desc: "" },
+    { id: 18, kind: "수업", type: "weekly", day: 3, time: "20:30", targets: ["오후"], label: "시범발차기", desc: "" },
+    { id: 19, kind: "수업", type: "weekly", day: 4, time: "20:30", targets: ["오후"], label: "특별수련", desc: "" },
+    { id: 20, kind: "행사", type: "once", day: 0, date: "2026-06-28", time: "14:00", targets: ["오전", "오후", "통합"], label: "승급심사", desc: "6월 정기 승급심사. 도복·승급비 지참.", fields: ["현재 단/급", "응시 단/급", "비상 연락처"] },
   ],
   submissions: {},
   reservations: {},
@@ -460,7 +482,6 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
   const tabs = [
     ["dashboard", "대시보드", LayoutDashboard],
     ["classes", "수업", BookOpen],
-    ["reserve", "예약·출석", ClipboardList],
     ["members", "회원", Users],
     ["events", "이벤트", Trophy],
     ["notice", "공지", Megaphone],
@@ -471,7 +492,6 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
     <>
       {tab === "dashboard" && <Dashboard data={data} wide={wide} />}
       {tab === "classes" && <ClassesAdmin data={data} persist={persist} kind="수업" />}
-      {tab === "reserve" && <ReserveAdmin data={data} persist={persist} />}
       {tab === "members" && <MembersAdmin data={data} persist={persist} />}
       {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" />}
       {tab === "notice" && <NoticeAdmin data={data} persist={persist} />}
@@ -616,6 +636,7 @@ function OperationsView({ data }) {
   const [team, setTeam] = useState(null);    // 팀 상세
   const [filter, setFilter] = useState("전체");
   const [panel, setPanel] = useState("members"); // 카드 선택: members | new | train | team
+  const [memDetail, setMemDetail] = useState(null); // 회원 기록 상세
   const isYear = unit === "year";
   const periods = isYear ? activeYears(data) : recentMonths(6);
 
@@ -625,6 +646,24 @@ function OperationsView({ data }) {
   const teamCount = active.filter((m) => (m.enrollments || []).some(isTeam)).length;
 
   if (team) return <TeamDetail data={data} team={team} unit={unit} setUnit={setUnit} onBack={() => setTeam(null)} />;
+  if (memDetail) {
+    const m = data.members.find((x) => x.id === memDetail) || {};
+    return (
+      <div>
+        <button onClick={() => setMemDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 순위로</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <span style={{ fontSize: 18, fontWeight: 800 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
+          <span style={{ fontSize: 12, color: C.dim2, fontFamily: DISP }}>{m.no}</span>
+        </div>
+        <Grid3>
+          <Stat label="누적 수련" value={trainTotal(data, m.id)} unit="회" accent />
+          <Stat label="이번달" value={trainMonth(data, m.id)} unit="회" />
+          <Stat label="경력" value={(m.history || []).length} unit="건" />
+        </Grid3>
+        <MemberTrainRecord data={data} mid={m.id} />
+      </div>
+    );
+  }
 
   const FILTERS = [
     { k: "전체", t: () => true }, { k: "내부", t: (m) => m.memberType === "내부 회원" },
@@ -681,14 +720,15 @@ function OperationsView({ data }) {
               <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
             ))}
           </div>
-          <Panel title={`회원별 수련 순위 · ${filter}`} sub="누적 출석 기준">
+          <Panel title={`회원별 수련 순위 · ${filter}`} sub="누적 출석 기준 · 회원을 누르면 상세 기록">
             {rows.length === 0 ? <Empty>데이터가 없습니다.</Empty> : rows.map((r, i) => (
-              <div key={r.m.id} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
+              <div key={r.m.id} onClick={() => setMemDetail(r.m.id)} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
                   <span style={{ fontFamily: DISP, fontWeight: 700, color: i < 3 ? C.gold : C.dim2, minWidth: 20, fontSize: 15 }}>{i + 1}</span>
                   <span style={{ fontWeight: 700 }}>{r.m.instructor && <span style={{ color: C.gold }}>★</span>}{r.m.name}</span>
                   <span style={{ fontSize: 11, color: C.dim2 }}>{r.m.no}</span>
                   <span style={{ marginLeft: "auto", fontFamily: DISP, fontWeight: 700, color: C.gold, fontSize: 16 }}>{r.total}<span style={{ fontSize: 11, color: C.dim, marginLeft: 2 }}>회</span></span>
+                  <ChevronRight size={15} color={C.dim} />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ flex: 1, height: 7, background: "#202028", borderRadius: 5, overflow: "hidden" }}>
@@ -747,6 +787,44 @@ function OperationsView({ data }) {
         </Panel>
       )}
     </div>
+  );
+}
+
+// ── 회원 수련 기록 (구분별 누적 + 월별) — 수련자/운영 공용 ──
+const GROUP_COLOR = { 정규: "#d8b45a", 시범단: "#d8693f", 겨루기: "#4d82d8", 품새: "#3fb08c" };
+function MemberTrainRecord({ data, mid }) {
+  const groups = ATT_GROUPS.map((g) => ({ g, n: trainByGroup(data, mid, g) })).filter((x) => x.n > 0);
+  const months = recentMonths(6);
+  const monthRows = months.map((m) => ({ m, total: trainMonth(data, mid, m), parts: ATT_GROUPS.map((g) => ({ g, n: trainGroupMonth(data, mid, g, m) })).filter((x) => x.n > 0) })).filter((x) => x.total > 0);
+  return (
+    <>
+      {groups.length > 0 && (
+        <Panel title="구분별 누적 수련">
+          {groups.map(({ g, n }) => (
+            <div key={g} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: GROUP_COLOR[g] }} />
+              <span style={{ fontSize: 14, flex: 1 }}>{g} 수련</span>
+              <span style={{ fontFamily: DISP, fontWeight: 700, color: C.gold }}>{n}회</span>
+            </div>
+          ))}
+        </Panel>
+      )}
+      <Panel title="월별 수련 기록" sub="최근 6개월">
+        {monthRows.length === 0 ? <Empty>수련 기록이 없습니다.</Empty> : monthRows.map(({ m, total, parts }) => (
+          <div key={m} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <span style={{ fontWeight: 700, fontFamily: DISP }}>{m.slice(0, 4)}년 {Number(m.slice(5))}월</span>
+              <span style={{ marginLeft: "auto", fontFamily: DISP, fontWeight: 700, color: C.gold }}>{total}회</span>
+            </div>
+            {parts.length > 0 && (
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
+                {parts.map(({ g, n }) => <span key={g} style={{ fontSize: 11, color: "#fff", background: GROUP_COLOR[g], borderRadius: 5, padding: "2px 8px" }}>{g} {n}</span>)}
+              </div>
+            )}
+          </div>
+        ))}
+      </Panel>
+    </>
   );
 }
 
@@ -1112,14 +1190,14 @@ function ClassesAdmin({ data, persist, kind }) {
       </div>
     );
   }
-  if (view === "timetable") return <TimetableGrid data={data} onClose={() => setView("main")} />;
+  if (view === "timetable") return <TimetableGrid data={data} persist={persist} onClose={() => setView("main")} />;
   return (
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
         <button onClick={() => setEdit(newItem)} style={btnGold}><Plus size={16} /> 수업 개설</button>
         <button onClick={() => setView("timetable")} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><LayoutDashboard size={15} /> 정규수업 설정</button>
         <button onClick={() => setTeamCfg(true)} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><CalendarCheck size={15} /> 팀 수업 설정</button>
-        <button onClick={() => setView("reserve")} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><ClipboardList size={15} /> 예약·출석</button>
+        <button onClick={() => setView("reserve")} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><ClipboardList size={15} /> 출석부</button>
       </div>
       <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{}} selected={selDate} onSelect={setSelDate} />
       {selDate && (() => {
@@ -1173,7 +1251,7 @@ function SubmissionsView({ data, event, onClose }) {
   );
 }
 
-function ClassForm({ cls, names, isEvent, onSave, onClose }) {
+function ClassForm({ cls, names, isEvent, onSave, onClose, onDelete }) {
   const [f, setF] = useState(cls);
   const [custom, setCustom] = useState(cls.label !== "" && !names.includes(cls.label));
   const [fieldInput, setFieldInput] = useState("");
@@ -1238,62 +1316,85 @@ function ClassForm({ cls, names, isEvent, onSave, onClose }) {
           <div style={{ fontSize: 11, color: C.dim2, marginTop: 6 }}>비워두면 정보 입력 없이 단순 신청만 받습니다.</div>
         </Field>
       )}
-      <button disabled={!valid} onClick={() => onSave(f)} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8, opacity: valid ? 1 : 0.4 }}><Check size={16} /> 저장</button>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        {onDelete && <button onClick={onDelete} style={{ ...pill, padding: "12px 16px", color: "#e58282", borderColor: "#5a2a2a" }}><Trash2 size={15} /> 삭제</button>}
+        <button disabled={!valid} onClick={() => onSave(f)} style={{ ...btnGold, flex: 1, justifyContent: "center", opacity: valid ? 1 : 0.4 }}><Check size={16} /> 저장</button>
+      </div>
     </Modal>
   );
 }
 
 function ReserveAdmin({ data, persist }) {
-  const [base, setBase] = useState(new Date().toISOString().slice(0, 10));
   const [monthBase, setMonthBase] = useState(new Date().toISOString().slice(0, 10));
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(todayStr());
+  const [filter, setFilter] = useState("정규반");
   const [copied, setCopied] = useState(false);
-  const week = weekDates(base);
-  const items = data.classes.map((c) => ({ c, date: classDateInWeek(c, week) })).filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date));
-  const mark = (date, mid, st) => persist({ ...data, attendance: { ...data.attendance, [date]: { ...(data.attendance[date] || {}), [mid]: st } } });
-
-  const absent = [];
-  week.forEach((d) => { Object.entries(data.attendance[d] || {}).forEach(([mid, st]) => { if (st === "결석") { const m = data.members.find((x) => x.id === Number(mid)); if (m) absent.push(m.name); } }); });
-  const uniq = [...new Set(absent)];
-  const draft = uniq.map((n) => `${n} 회원님, 이번 주 수련에서 못 뵈었네요! 다음 시간엔 매트 위에서 같이 땀 흘려요. 가온은 늘 그 자리에 있습니다 💪`).join("\n\n");
-
-  const renderPanel = (c, date) => {
-    const dow = dowOf(date);
-    const members = (data.reservations[date]?.[c.id] || []).map((id) => data.members.find((m) => m.id === id)).filter(Boolean);
-    return (
-      <Panel key={`${c.id}-${date}`} title={`${DAYS[dow]} ${date.slice(5)} · ${c.label}`} sub={`${(c.targets || []).join(", ")} · ${c.time} · 신청 ${members.length}명`} dot={mainColor(c.targets)}>
-        {members.length === 0 ? <Empty>신청자가 없습니다.</Empty> : members.map((m) => {
-          const st = data.attendance[date]?.[m.id];
-          return (
-            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
-              <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
-              <span style={{ fontWeight: 700, flex: 1 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
-              <button onClick={() => mark(date, m.id, "출석")} style={{ ...pill, background: st === "출석" ? "#2e7d52" : "transparent", color: st === "출석" ? "#fff" : C.dim, borderColor: st === "출석" ? "#2e7d52" : C.line }}>출석</button>
-              <button onClick={() => mark(date, m.id, "결석")} style={{ ...pill, background: st === "결석" ? "#a23b3b" : "transparent", color: st === "결석" ? "#fff" : C.dim, borderColor: st === "결석" ? "#a23b3b" : C.line }}>결석</button>
-            </div>
-          );
-        })}
-      </Panel>
-    );
+  // 필터 → 저장할 구분
+  const groupOf = (m) => {
+    if (filter === "시범단") return "시범단";
+    if (filter === "겨루기") return "겨루기";
+    if (filter === "품새") return "품새";
+    if (filter === "정규반") return "정규";
+    const e = m.enrollments || []; // 전체: 회원 등록으로 추론
+    if (e.some((x) => SESSIONS.includes(x))) return "정규";
+    if (e.includes("GDT(시범단)")) return "시범단";
+    if (e.includes("GST(겨루기)")) return "겨루기";
+    if (e.includes("GPT(품새)")) return "품새";
+    return "정규";
   };
-  const dayItems = selected ? classesOnDate(data.classes, selected) : [];
+  const mark = (date, m, st) => {
+    const cur = attSt(data.attendance[date]?.[m.id]);
+    const dayRec = { ...(data.attendance[date] || {}) };
+    if (cur === st) delete dayRec[m.id]; else dayRec[m.id] = { st, g: groupOf(m) };
+    persist({ ...data, attendance: { ...data.attendance, [date]: dayRec } });
+  };
+
+  const FILTERS = [
+    { k: "전체", t: () => true },
+    { k: "정규반", t: (m) => (m.enrollments || []).some((e) => SESSIONS.includes(e)) },
+    { k: "시범단", t: (m) => (m.enrollments || []).includes("GDT(시범단)") },
+    { k: "겨루기", t: (m) => (m.enrollments || []).includes("GST(겨루기)") },
+    { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
+  ];
+  const tf = (FILTERS.find((x) => x.k === filter) || FILTERS[0]).t;
+  const list = data.members.filter((m) => m.status === "활동중").filter(tf).sort((a, b) => a.no.localeCompare(b.no));
+
+  const present = list.filter((m) => attSt(data.attendance[selected]?.[m.id]) === "출석").length;
+
+  // 선택일 결석자 카톡 초안
+  const absent = list.filter((m) => attSt(data.attendance[selected]?.[m.id]) === "결석").map((m) => m.name);
+  const draft = absent.map((n) => `${n} 회원님, 오늘 수련에서 못 뵈었네요! 다음 시간엔 매트 위에서 같이 땀 흘려요. 가온은 늘 그 자리에 있습니다 💪`).join("\n\n");
 
   return (
     <div>
       <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{}} selected={selected} onSelect={setSelected} />
 
-      {selected && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginBottom: 10 }}>{selected.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(selected)]}) 신청 현황</div>
-          {dayItems.length === 0 ? <Empty>이 날은 수업이 없습니다.</Empty> : dayItems.map((c) => renderPanel(c, selected))}
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "16px 0 12px", paddingBottom: 2 }}>
+        {FILTERS.map((fl) => (
+          <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "8px 15px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
+        ))}
+      </div>
 
-      <div style={{ height: 1, background: C.line, margin: "18px 0 16px" }} />
-      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>주간 전체 보기</div>
-      <WeekNav base={base} setBase={setBase} week={week} />
-      {items.length === 0 ? <Empty>이번 주에 열리는 수업이 없습니다.</Empty> : items.map(({ c, date }) => renderPanel(c, date))}
-      {uniq.length > 0 && (
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 13, color: C.gold, fontWeight: 700 }}>{selected.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(selected)]}) · {filter}</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.dim2 }}>출석 {present} / {list.length}명</span>
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
+        {list.length === 0 ? <Empty>해당 구분의 활동 회원이 없습니다.</Empty> : list.map((m) => {
+          const st = attSt(data.attendance[selected]?.[m.id]);
+          return (
+            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: `1px solid ${C.line}` }}>
+              <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
+              <span style={{ fontWeight: 700, flex: 1, minWidth: 0 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
+              <button onClick={() => mark(selected, m, "출석")} style={{ ...pill, padding: "7px 13px", background: st === "출석" ? "#2e7d52" : "transparent", color: st === "출석" ? "#fff" : C.dim, borderColor: st === "출석" ? "#2e7d52" : C.line }}>출석</button>
+              <button onClick={() => mark(selected, m, "결석")} style={{ ...pill, padding: "7px 13px", background: st === "결석" ? "#a23b3b" : "transparent", color: st === "결석" ? "#fff" : C.dim, borderColor: st === "결석" ? "#a23b3b" : C.line }}>결석</button>
+            </div>
+          );
+        })}
+      </div>
+
+      {absent.length > 0 && (
         <Panel title="결석자 카카오톡 초안">
           <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.6, color: "#dadae0", margin: 0, fontFamily: FONT }}>{draft}</pre>
           <button onClick={() => { navigator.clipboard?.writeText(draft); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={{ ...btnGold, marginTop: 14 }}><Copy size={15} /> {copied ? "복사됨!" : "메시지 복사"}</button>
@@ -1417,41 +1518,57 @@ function MemberVoucherModal({ data, persist, member, onClose }) {
   );
 }
 
-// ── 시간표 격자 보기 (보기 전용) ──
-function TimetableGrid({ data, onClose }) {
-  const lessons = data.classes.filter((c) => (c.kind || "수업") === "수업" && c.type === "weekly");
+// ── 정규수업 설정 (시간표 격자 + 편집) ──
+function TimetableGrid({ data, persist, onClose }) {
+  const [edit, setEdit] = useState(null);
+  const lessons = data.classes.filter((c) => (c.kind || "수업") === "수업" && c.type === "weekly" && !(c.targets || []).some(isTeam));
   const times = [...new Set(lessons.map((c) => c.time))].sort();
   const cell = (time, day) => lessons.filter((c) => c.time === time && c.day === day);
+  const save = (c) => {
+    let next;
+    if (c.id) next = { ...data, classes: data.classes.map((x) => x.id === c.id ? c : x) };
+    else next = { ...data, classes: [...data.classes, { ...c, id: Math.max(0, ...data.classes.map((x) => x.id)) + 1 }] };
+    persist(next); setEdit(null);
+  };
+  const remove = (id) => { if (confirm("이 수업을 삭제할까요?")) { persist({ ...data, classes: data.classes.filter((x) => x.id !== id) }); setEdit(null); } };
+  const addAt = (day, time) => setEdit({ kind: "수업", type: "weekly", day, time, targets: ["오후"], label: "", desc: "" });
+
   return (
     <div>
       <button onClick={onClose} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 수업으로</button>
-      <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>수련 시간표</div>
-      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14 }}>좌우로 밀어서 전체 요일 보기 · 수정은 '수업 개설'에서</div>
-      {times.length === 0 ? <Empty>등록된 정규 수업이 없습니다.</Empty> : (
-        <div style={{ overflowX: "auto", border: `1px solid ${C.line}`, borderRadius: 14, padding: 8, background: C.card }}>
-          <div style={{ minWidth: 540 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "52px repeat(7, 1fr)", gap: 3 }}>
-              <div style={{ fontSize: 10, color: C.dim2, textAlign: "center", padding: "7px 0" }}>시간</div>
-              {DAYS.map((d, i) => <div key={i} style={{ fontSize: 11, fontWeight: 700, textAlign: "center", padding: "7px 0", color: i === 0 ? "#c86a5a" : i === 6 ? "#6a8fd0" : C.gold }}>{d}</div>)}
-              {times.map((t) => (
-                <React.Fragment key={t}>
-                  <div style={{ fontSize: 9, color: C.dim2, textAlign: "center", padding: "10px 0", fontFamily: DISP }}>{t}</div>
-                  {DAYS.map((d, di) => {
-                    const cs = cell(t, di);
-                    return (
-                      <div key={di} style={{ minHeight: 34, display: "flex", flexDirection: "column", gap: 2, justifyContent: "center" }}>
-                        {cs.map((c) => (
-                          <div key={c.id} style={{ background: `${mainColor(c.targets)}28`, border: `1px solid ${mainColor(c.targets)}66`, borderRadius: 5, fontSize: 9, color: "#fff", textAlign: "center", padding: "5px 2px", lineHeight: 1.2 }}>{c.label}</div>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
-            </div>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 16, fontWeight: 800 }}>정규수업 시간표</span>
+        <button onClick={() => addAt(1, "19:00")} style={{ ...btnGold, marginLeft: "auto", padding: "8px 13px" }}><Plus size={15} /> 수업 추가</button>
+      </div>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14 }}>칸을 누르면 그 요일·시간에 수업을 추가하고, 수업을 누르면 수정·삭제합니다. (좌우로 밀어서 전체 요일)</div>
+      <div style={{ overflowX: "auto", border: `1px solid ${C.line}`, borderRadius: 14, padding: 8, background: C.card }}>
+        <div style={{ minWidth: 560 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "52px repeat(6, 1fr)", gap: 3 }}>
+            <div style={{ fontSize: 10, color: C.dim2, textAlign: "center", padding: "7px 0" }}>시간</div>
+            {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} style={{ fontSize: 11, fontWeight: 700, textAlign: "center", padding: "7px 0", color: i === 6 ? "#6a8fd0" : C.gold }}>{DAYS[i]}</div>)}
+            {times.length === 0 && <div style={{ gridColumn: "1 / -1", textAlign: "center", color: C.dim, padding: "24px 0", fontSize: 13 }}>등록된 정규 수업이 없습니다. '수업 추가'를 눌러 시작하세요.</div>}
+            {times.map((t) => (
+              <React.Fragment key={t}>
+                <div style={{ fontSize: 9, color: C.dim2, textAlign: "center", padding: "12px 0", fontFamily: DISP }}>{t}</div>
+                {[1, 2, 3, 4, 5, 6].map((di) => {
+                  const cs = cell(t, di);
+                  return (
+                    <div key={di} onClick={() => cs.length === 0 && addAt(di, t)} style={{ minHeight: 38, display: "flex", flexDirection: "column", gap: 2, justifyContent: "center", cursor: cs.length === 0 ? "pointer" : "default", borderRadius: 5, background: cs.length === 0 ? "transparent" : undefined }}>
+                      {cs.length === 0
+                        ? <div style={{ height: "100%", minHeight: 30, border: `1px dashed ${C.line}`, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", color: "#3a3a42", fontSize: 14 }}>+</div>
+                        : cs.map((c) => {
+                          const col = mainColor(c.targets);
+                          return <div key={c.id} onClick={(e) => { e.stopPropagation(); setEdit(c); }} style={{ background: `${col}28`, border: `1px solid ${col}66`, borderRadius: 5, fontSize: 9, color: "#fff", textAlign: "center", padding: "5px 2px", lineHeight: 1.25, cursor: "pointer" }}>{c.label}<div style={{ fontSize: 8, color: "#cfcfd6", marginTop: 1 }}>{(c.targets || [])[0]}</div></div>;
+                        })}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            ))}
           </div>
         </div>
-      )}
+      </div>
+      {edit && <ClassForm cls={edit} names={LESSON_NAMES} onSave={save} onDelete={edit.id ? () => remove(edit.id) : null} onClose={() => setEdit(null)} />}
     </div>
   );
 }
@@ -1871,6 +1988,12 @@ function MineRecord({ data, me }) {
         <Stat label="이번달" value={month} unit="회" />
         <Stat label="경력" value={(me.history || []).length} unit="건" />
       </Grid3>
+
+      {(() => {
+        const months = recentMonths(6);
+        const hasRec = months.some((m) => trainMonth(data, me.id, m) > 0);
+        return hasRec ? <MemberTrainRecord data={data} mid={me.id} /> : null;
+      })()}
 
       {(me.enrollments || []).length > 0 && (
         <Panel title="내 수강권" sub="등록 수업별 기간">
