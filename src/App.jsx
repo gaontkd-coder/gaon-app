@@ -236,13 +236,10 @@ function Auth({ data, onAdmin, onMember }) {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: "0 auto", paddingTop: 72 }}>
+    <div style={{ maxWidth: 400, margin: "0 auto", paddingTop: 64 }}>
       <div style={{ textAlign: "center", marginBottom: 30 }}>
-        <div style={{ fontFamily: DISP, fontSize: 13, letterSpacing: 7, color: C.gold, fontWeight: 600 }}>GAON TAEKWONDO</div>
-        <h1 style={{ margin: "10px 0 0", fontSize: 40, fontWeight: 800, letterSpacing: "-1px", lineHeight: 1 }}>
-          가온<span style={{ color: C.gold }}>태권도</span>
-        </h1>
-        <div style={{ width: 44, height: 3, background: C.goldGrad, borderRadius: 2, margin: "16px auto 0" }} />
+        <img src="/logo.png" alt="가온태권도장" style={{ width: 210, maxWidth: "62%", height: "auto", display: "block", margin: "0 auto", filter: "drop-shadow(0 4px 18px rgba(0,0,0,0.5))" }} />
+        <div style={{ width: 44, height: 3, background: C.goldGrad, borderRadius: 2, margin: "20px auto 0" }} />
         <p style={{ margin: "16px 0 0", fontSize: 13, color: C.dim }}>같이 배우고 같이 땀 흘리는, 우리의 시간</p>
       </div>
 
@@ -334,9 +331,8 @@ function Sidebar({ tabs, tab, setTab, admin, onLogout }) {
   return (
     <aside style={{ width: 212, flexShrink: 0, position: "sticky", top: 26, alignSelf: "flex-start", height: "calc(100vh - 52px)", display: "flex", flexDirection: "column" }}>
       <div style={{ paddingBottom: 18, borderBottom: `1px solid ${C.line}`, marginBottom: 14 }}>
-        <div style={{ fontFamily: DISP, fontSize: 10, letterSpacing: 4, color: C.gold, fontWeight: 600 }}>GAON TAEKWONDO</div>
-        <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px", marginTop: 3 }}>가온<span style={{ color: C.gold }}>태권도</span></div>
-        <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>관리자 · {admin.name}</div>
+        <img src="/logo.png" alt="가온태권도장" style={{ width: 150, height: "auto", display: "block" }} />
+        <div style={{ fontSize: 12, color: C.dim, marginTop: 10 }}>관리자 · {admin.name}</div>
       </div>
       <nav style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
         {tabs.map(([id, label, Icon]) => {
@@ -1047,9 +1043,8 @@ function TopBar({ role, name, onLogout }) {
   return (
     <header style={{ display: "flex", alignItems: "center", padding: "26px 0 18px", borderBottom: `1px solid ${C.line}` }}>
       <div>
-        <div style={{ fontFamily: DISP, fontSize: 10, letterSpacing: 4, color: C.gold, fontWeight: 600 }}>GAON TAEKWONDO</div>
-        <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.5px", marginTop: 2 }}>가온<span style={{ color: C.gold }}>태권도</span></div>
-        <div style={{ fontSize: 12, color: C.dim, marginTop: 3 }}>{role} · {name}</div>
+        <img src="/logo.png" alt="가온태권도장" style={{ width: 128, height: "auto", display: "block" }} />
+        <div style={{ fontSize: 12, color: C.dim, marginTop: 7 }}>{role} · {name}</div>
       </div>
       <button onClick={onLogout} style={{ ...iconBtn, marginLeft: "auto", width: "auto", padding: "0 13px", gap: 6, fontSize: 13, height: 38 }}><LogOut size={14} /> 로그아웃</button>
     </header>
