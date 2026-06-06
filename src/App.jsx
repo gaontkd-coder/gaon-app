@@ -236,21 +236,21 @@ function Auth({ data, onAdmin, onMember }) {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: "0 auto", paddingTop: 64 }}>
-      <div style={{ textAlign: "center", marginBottom: 30 }}>
-        <img src="/logo.png" alt="가온태권도장" style={{ width: 210, maxWidth: "62%", height: "auto", display: "block", margin: "0 auto", filter: "drop-shadow(0 4px 18px rgba(0,0,0,0.5))" }} />
-        <div style={{ width: 44, height: 3, background: C.goldGrad, borderRadius: 2, margin: "20px auto 0" }} />
-        <p style={{ margin: "16px 0 0", fontSize: 13, color: C.dim }}>같이 배우고 같이 땀 흘리는, 우리의 시간</p>
+    <div style={{ maxWidth: 400, margin: "0 auto", paddingTop: 56 }}>
+      <div style={{ textAlign: "center", marginBottom: 26 }}>
+        <img src="/logo.png" alt="가온태권도장" style={{ width: "64%", maxWidth: 250, height: "auto", display: "block", margin: "0 auto", filter: "drop-shadow(0 6px 22px rgba(0,0,0,0.55))" }} />
+        <div style={{ height: 2, width: "64%", maxWidth: 250, margin: "20px auto 0", background: "linear-gradient(90deg, transparent, #d8b45a 22%, #f0d68a 50%, #d8b45a 78%, transparent)", borderRadius: 2, opacity: 0.85 }} />
+        <p style={{ margin: "14px 0 0", fontSize: 13, color: "#b8a878", letterSpacing: "0.2px" }}>같이 배우고 같이 땀 흘리는, 우리의 시간</p>
       </div>
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {[["member", "수련자", User], ["admin", "관리자", Shield]].map(([id, label, Icon]) => {
           const on = mode === id;
           return (
             <button key={id} onClick={() => { setMode(id); setErr(""); }}
               style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 13,
                 background: on ? C.goldGrad : "transparent", color: on ? "#1a1305" : C.dim,
-                border: `1px solid ${on ? "transparent" : C.line}`, borderRadius: 12, fontWeight: 700, cursor: "pointer",
+                border: `1px solid ${on ? "transparent" : C.line}`, borderRadius: 13, fontWeight: 700, cursor: "pointer",
                 boxShadow: on ? "0 4px 14px rgba(216,180,90,0.25)" : "none" }}>
               <Icon size={16} /> {label}
             </button>
@@ -258,7 +258,7 @@ function Auth({ data, onAdmin, onMember }) {
         })}
       </div>
 
-      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 18, padding: 24, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 18, padding: 22, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
         {mode === "member" ? (
           <>
             <Field label="회원번호"><input style={inp} value={no} onChange={(e) => setNo(e.target.value)} placeholder="예: 25-001" /></Field>
@@ -331,8 +331,8 @@ function Sidebar({ tabs, tab, setTab, admin, onLogout }) {
   return (
     <aside style={{ width: 212, flexShrink: 0, position: "sticky", top: 26, alignSelf: "flex-start", height: "calc(100vh - 52px)", display: "flex", flexDirection: "column" }}>
       <div style={{ paddingBottom: 18, borderBottom: `1px solid ${C.line}`, marginBottom: 14 }}>
-        <img src="/logo.png" alt="가온태권도장" style={{ width: 150, height: "auto", display: "block" }} />
-        <div style={{ fontSize: 12, color: C.dim, marginTop: 10 }}>관리자 · {admin.name}</div>
+        <img src="/logo-h.png" alt="가온태권도장" style={{ width: 180, height: "auto", display: "block" }} />
+        <div style={{ fontSize: 12, color: C.dim, marginTop: 12 }}>관리자 · {admin.name}</div>
       </div>
       <nav style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
         {tabs.map(([id, label, Icon]) => {
@@ -1043,8 +1043,8 @@ function TopBar({ role, name, onLogout }) {
   return (
     <header style={{ display: "flex", alignItems: "center", padding: "26px 0 18px", borderBottom: `1px solid ${C.line}` }}>
       <div>
-        <img src="/logo.png" alt="가온태권도장" style={{ width: 128, height: "auto", display: "block" }} />
-        <div style={{ fontSize: 12, color: C.dim, marginTop: 7 }}>{role} · {name}</div>
+        <img src="/logo-h.png" alt="가온태권도장" style={{ width: 158, height: "auto", display: "block" }} />
+        <div style={{ fontSize: 12, color: C.dim, marginTop: 8 }}>{role} · {name}</div>
       </div>
       <button onClick={onLogout} style={{ ...iconBtn, marginLeft: "auto", width: "auto", padding: "0 13px", gap: 6, fontSize: 13, height: 38 }}><LogOut size={14} /> 로그아웃</button>
     </header>
