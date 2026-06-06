@@ -237,7 +237,7 @@ function classesOnDate(classes, date, opt = {}) {
   const dow = dowOf(date);
   return classes.filter((c) => {
     if (opt.kind && (c.kind || "수업") !== opt.kind) return false;
-    if (opt.me && !canTake(opt.me, c)) return false;
+    if (opt.me && (c.kind || "수업") !== "행사" && !canTake(opt.me, c)) return false;
     return c.type === "once" ? c.date === date : c.day === dow;
   });
 }
@@ -295,9 +295,9 @@ const SAMPLE = {
     { id: 7, no: "26-002", name: "한지우", phone: "010-1234-0007", enrollments: ["통합", "GDT(시범단)"], status: "활동중", joinDate: "2026-02-10" },
   ],
   classes: [
-    { id: 1, kind: "수업", type: "weekly", day: 5, time: "20:00", targets: ["GDT(시범단)"], label: "시범단 훈련", desc: "" },
-    { id: 2, kind: "수업", type: "weekly", day: 6, time: "16:00", targets: ["GST(겨루기)"], label: "겨루기팀 훈련", desc: "" },
-    { id: 3, kind: "수업", type: "weekly", day: 0, time: "11:00", targets: ["GPT(품새)"], label: "품새팀 훈련", desc: "" },
+    { id: 1, kind: "수업", type: "weekly", day: 5, time: "20:30", targets: ["GDT(시범단)"], label: "시범단 훈련", desc: "금요일 20:30~22:00" },
+    { id: 2, kind: "수업", type: "weekly", day: 6, time: "13:00", targets: ["GST(겨루기)"], label: "겨루기팀 훈련", desc: "토요일 13:00~16:30" },
+    { id: 3, kind: "수업", type: "weekly", day: 0, time: "15:00", targets: ["GPT(품새)"], label: "품새팀 훈련", desc: "일요일 15:00~16:30" },
     { id: 4, kind: "수업", type: "weekly", day: 2, time: "10:00", targets: ["오전"], label: "오전 정규반", desc: "" },
     { id: 5, kind: "수업", type: "weekly", day: 1, time: "19:00", targets: ["오후"], label: "오후 정규반", desc: "" },
     { id: 6, kind: "행사", type: "once", day: 0, date: "2026-06-28", time: "14:00", targets: ["오전", "오후", "통합"], label: "승급심사", desc: "6월 정기 승급심사. 도복·승급비 지참.", fields: ["현재 단/급", "응시 단/급", "비상 연락처"] },
@@ -459,25 +459,23 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
   const wide = useWide();
   const tabs = [
     ["dashboard", "대시보드", LayoutDashboard],
-    ["members", "회원", Users],
-    ["training", "운영", Flame],
     ["classes", "수업", BookOpen],
+    ["reserve", "예약·출석", ClipboardList],
+    ["members", "회원", Users],
     ["events", "이벤트", Trophy],
-    ["reserve", "예약·출석", CalendarCheck],
-    ["vouchers", "상품권", Ticket],
     ["notice", "공지", Megaphone],
+    ["training", "운영", Flame],
     ...(admin.role === "super" ? [["accounts", "관리자", KeyRound]] : []),
   ];
   const content = (
     <>
       {tab === "dashboard" && <Dashboard data={data} wide={wide} />}
-      {tab === "members" && <MembersAdmin data={data} persist={persist} />}
-      {tab === "training" && <OperationsView data={data} />}
       {tab === "classes" && <ClassesAdmin data={data} persist={persist} kind="수업" />}
-      {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" />}
       {tab === "reserve" && <ReserveAdmin data={data} persist={persist} />}
-      {tab === "vouchers" && <VouchersAdmin data={data} persist={persist} />}
+      {tab === "members" && <MembersAdmin data={data} persist={persist} />}
+      {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" />}
       {tab === "notice" && <NoticeAdmin data={data} persist={persist} />}
+      {tab === "training" && <OperationsView data={data} />}
       {tab === "accounts" && admin.role === "super" && <AdminAccounts data={data} persist={persist} me={admin} />}
     </>
   );
@@ -1044,6 +1042,9 @@ function ClassesAdmin({ data, persist, kind }) {
   const [edit, setEdit] = useState(null);
   const [subs, setSubs] = useState(null);
   const [teamCfg, setTeamCfg] = useState(false);
+  const [view, setView] = useState("main"); // main | reserve (수업탭) / list | vouchers (이벤트탭)
+  const [monthBase, setMonthBase] = useState(new Date().toISOString().slice(0, 10));
+  const [selDate, setSelDate] = useState(null);
   const isEvent = kind === "행사";
   const names = isEvent ? EVENT_NAMES : LESSON_NAMES;
   const save = (c) => {
@@ -1080,9 +1081,20 @@ function ClassesAdmin({ data, persist, kind }) {
 
   if (isEvent) {
     const sorted = [...mine].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+    if (view === "vouchers") {
+      return (
+        <div>
+          <button onClick={() => setView("list")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 이벤트로</button>
+          <VouchersAdmin data={data} persist={persist} />
+        </div>
+      );
+    }
     return (
       <div>
-        <button onClick={() => setEdit(newItem)} style={{ ...btnGold, marginBottom: 18 }}><Plus size={16} /> 일정 추가</button>
+        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+          <button onClick={() => setEdit(newItem)} style={btnGold}><Plus size={16} /> 일정 추가</button>
+          <button onClick={() => setView("vouchers")} style={{ ...pill, padding: "11px 16px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><Ticket size={15} /> 상품권 발급</button>
+        </div>
         <GroupLabel color="#d8693f">대회 · 심사 · 공연 · 이벤트 ({sorted.length})</GroupLabel>
         <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>{sorted.length ? sorted.map(card) : <Empty>등록된 일정이 없습니다.</Empty>}</div>
         {edit && <ClassForm cls={edit} names={names} isEvent onSave={save} onClose={() => setEdit(null)} />}
@@ -1092,12 +1104,35 @@ function ClassesAdmin({ data, persist, kind }) {
   }
   const teams = mine.filter((c) => (c.targets || []).some(isTeam)).sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
   const regs = mine.filter((c) => !(c.targets || []).some(isTeam)).sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+  if (view === "reserve") {
+    return (
+      <div>
+        <button onClick={() => setView("main")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 수업으로</button>
+        <ReserveAdmin data={data} persist={persist} />
+      </div>
+    );
+  }
+  if (view === "timetable") return <TimetableGrid data={data} onClose={() => setView("main")} />;
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
         <button onClick={() => setEdit(newItem)} style={btnGold}><Plus size={16} /> 수업 개설</button>
-        <button onClick={() => setTeamCfg(true)} style={{ ...pill, padding: "11px 16px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><CalendarCheck size={15} /> 팀 수업 설정</button>
+        <button onClick={() => setView("timetable")} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><LayoutDashboard size={15} /> 정규수업 설정</button>
+        <button onClick={() => setTeamCfg(true)} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><CalendarCheck size={15} /> 팀 수업 설정</button>
+        <button onClick={() => setView("reserve")} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><ClipboardList size={15} /> 예약·출석</button>
       </div>
+      <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{}} selected={selDate} onSelect={setSelDate} />
+      {selDate && (() => {
+        const dayItems = classesOnDate(data.classes, selDate);
+        return (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginBottom: 10 }}>{selDate.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(selDate)]}) 수업</div>
+            {dayItems.length === 0 ? <Empty>이 날은 수업이 없습니다.</Empty> : (
+              <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>{dayItems.map(card)}</div>
+            )}
+          </div>
+        );
+      })()}
       <GroupLabel color="#d8693f">전문팀 수업 ({teams.length})</GroupLabel>
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden", marginBottom: 18 }}>{teams.length ? teams.map(card) : <Empty>전문팀 수업이 없습니다.</Empty>}</div>
       <GroupLabel color={C.gold}>정규반 수업 ({regs.length})</GroupLabel>
@@ -1382,6 +1417,45 @@ function MemberVoucherModal({ data, persist, member, onClose }) {
   );
 }
 
+// ── 시간표 격자 보기 (보기 전용) ──
+function TimetableGrid({ data, onClose }) {
+  const lessons = data.classes.filter((c) => (c.kind || "수업") === "수업" && c.type === "weekly");
+  const times = [...new Set(lessons.map((c) => c.time))].sort();
+  const cell = (time, day) => lessons.filter((c) => c.time === time && c.day === day);
+  return (
+    <div>
+      <button onClick={onClose} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 수업으로</button>
+      <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>수련 시간표</div>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14 }}>좌우로 밀어서 전체 요일 보기 · 수정은 '수업 개설'에서</div>
+      {times.length === 0 ? <Empty>등록된 정규 수업이 없습니다.</Empty> : (
+        <div style={{ overflowX: "auto", border: `1px solid ${C.line}`, borderRadius: 14, padding: 8, background: C.card }}>
+          <div style={{ minWidth: 540 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "52px repeat(7, 1fr)", gap: 3 }}>
+              <div style={{ fontSize: 10, color: C.dim2, textAlign: "center", padding: "7px 0" }}>시간</div>
+              {DAYS.map((d, i) => <div key={i} style={{ fontSize: 11, fontWeight: 700, textAlign: "center", padding: "7px 0", color: i === 0 ? "#c86a5a" : i === 6 ? "#6a8fd0" : C.gold }}>{d}</div>)}
+              {times.map((t) => (
+                <React.Fragment key={t}>
+                  <div style={{ fontSize: 9, color: C.dim2, textAlign: "center", padding: "10px 0", fontFamily: DISP }}>{t}</div>
+                  {DAYS.map((d, di) => {
+                    const cs = cell(t, di);
+                    return (
+                      <div key={di} style={{ minHeight: 34, display: "flex", flexDirection: "column", gap: 2, justifyContent: "center" }}>
+                        {cs.map((c) => (
+                          <div key={c.id} style={{ background: `${mainColor(c.targets)}28`, border: `1px solid ${mainColor(c.targets)}66`, borderRadius: 5, fontSize: 9, color: "#fff", textAlign: "center", padding: "5px 2px", lineHeight: 1.2 }}>{c.label}</div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 팀 수업 설정 (훈련 요일) 모달 ──
 function TeamDaysModal({ data, persist, onClose }) {
   const td = data.teamDays || DEFAULT_TEAM_DAYS;
@@ -1502,7 +1576,7 @@ function VoucherIssueModal({ data, tpl, onIssue, onClose }) {
   const [sel, setSel] = useState([]);
   const [q, setQ] = useState("");
   const [custom, setCustom] = useState(tpl ? null : { name: "", desc: "", days: 30 });
-  const list = data.members.filter((m) => m.status !== "탈퇴").filter((m) => m.name.includes(q) || m.no.includes(q));
+  const list = data.members.filter((m) => m.name.includes(q) || m.no.includes(q)).sort((a, b) => a.no.localeCompare(b.no));
   const toggle = (id) => setSel((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
   const ok = sel.length > 0 && (tpl || (custom && custom.name.trim()));
   return (
@@ -1527,6 +1601,7 @@ function VoucherIssueModal({ data, tpl, onIssue, onClose }) {
                 <div style={{ width: 18, height: 18, borderRadius: 5, border: `1px solid ${on ? C.gold : C.line}`, background: on ? C.gold : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{on && <Check size={13} color="#1a1305" />}</div>
                 <span style={{ fontWeight: 700, color: C.text }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
                 <span style={{ fontSize: 11, color: C.dim2, fontFamily: DISP }}>{m.no}</span>
+                <span style={{ marginLeft: "auto", fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>{m.status}</span>
               </button>
             );
           })}
@@ -1617,7 +1692,7 @@ function AdminAccounts({ data, persist, me }) {
 function Member({ data, persist, me, onLogout, asAdmin }) {
   const [tab, setTab] = useState("home");
   const isOut = me.status === "탈퇴", isPaused = me.status === "정지중";
-  const tabs = isOut ? [["home", "공지", Megaphone]]
+  const tabs = isOut ? [["home", "공지", Megaphone], ["mine", "내 기록", BookOpen]]
     : [["home", "홈", User], ["reserve", "수업", CalendarCheck], ["events", "이벤트", Trophy], ["mine", "내 기록", BookOpen]];
   const total = trainTotal(data, me.id), month = trainMonth(data, me.id);
   const star = me.instructor ? "★ " : "";
@@ -1671,7 +1746,7 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
       )}
       {tab === "reserve" && !isOut && <ReserveMember data={data} persist={persist} me={me} locked={isPaused} kind="수업" />}
       {tab === "events" && !isOut && <ReserveMember data={data} persist={persist} me={me} locked={isPaused} kind="행사" />}
-      {tab === "mine" && !isOut && <MineRecord data={data} me={me} />}
+      {tab === "mine" && <MineRecord data={data} me={me} />}
     </>
   );
 }
@@ -1682,7 +1757,13 @@ function ReserveMember({ data, persist, me, locked, kind }) {
   const [selected, setSelected] = useState(null);
   const [applyFor, setApplyFor] = useState(null);
   const week = weekDates(base);
-  const items = data.classes.filter((c) => canTake(me, c) && (c.kind || "수업") === kind).map((c) => ({ c, date: classDateInWeek(c, week) })).filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date));
+  const isEv = kind === "행사";
+  const today = todayStr();
+  const items = isEv
+    ? data.classes.filter((c) => c.kind === "행사" && (c.type !== "once" || c.date >= today))
+        .map((c) => ({ c, date: c.type === "once" ? c.date : classDateInWeek(c, week) })).filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date))
+    : data.classes.filter((c) => canTake(me, c) && (c.kind || "수업") === kind)
+        .map((c) => ({ c, date: classDateInWeek(c, week) })).filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date));
   const toggle = (date, cid) => {
     if (locked) return;
     const dayRes = { ...(data.reservations[date] || {}) };
@@ -1744,9 +1825,18 @@ function ReserveMember({ data, persist, me, locked, kind }) {
       )}
 
       <div style={{ height: 1, background: C.line, margin: "18px 0 16px" }} />
-      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>주간 전체 보기</div>
-      <WeekNav base={base} setBase={setBase} week={week} />
-      {items.length === 0 ? <Empty>이번 주에 신청 가능한 {kind === "행사" ? "이벤트가" : "수업이"} 없습니다.</Empty> : items.map(({ c, date }) => renderCard(c, date))}
+      {isEv ? (
+        <>
+          <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>다가오는 이벤트</div>
+          {items.length === 0 ? <Empty>예정된 이벤트가 없습니다.</Empty> : items.map(({ c, date }) => renderCard(c, date))}
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>주간 전체 보기</div>
+          <WeekNav base={base} setBase={setBase} week={week} />
+          {items.length === 0 ? <Empty>이번 주에 신청 가능한 수업이 없습니다.</Empty> : items.map(({ c, date }) => renderCard(c, date))}
+        </>
+      )}
       {applyFor && <ApplyModal event={applyFor.c} onSubmit={(ans) => submitApply(applyFor.c, applyFor.date, ans)} onClose={() => setApplyFor(null)} />}
     </div>
   );
