@@ -39,7 +39,6 @@ const FONT = "'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFo
 const DISP = "'Oswald', " + FONT;
 
 const SESSIONS = ["오전", "오후", "통합"];
-const MEMBER_TYPES = ["내부 회원", "외부 회원"];
 const PERIODS = ["일일", "1개월", "3개월", "6개월", "1년"];
 const PERIOD_MONTHS = { "1개월": 1, "3개월": 3, "6개월": 6, "1년": 12 };
 const DEFAULT_TEAM_DAYS = { "GDT(시범단)": 5, "GST(겨루기)": 6, "GPT(품새)": 0 }; // 요일 (일=0 … 토=6)
@@ -190,8 +189,8 @@ function termStatus(t) {
   if (days <= 7) return { label: `D-${days}`, color: "#c89042", days };
   return { label: `D-${days}`, color: "#3fa86a", days };
 }
-// 재등록: 팀=다음 달 마지막 훈련일 / 정규반=현재 만료 다음날부터 기간 연장
-function renewTerm(k, t, teamDays) {
+// 재등록: 팀=다음 달 마지막 훈련일 / 정규반=현재 만료 다음날부터 새 기간 연장(홀딩 초기화)
+function renewTerm(k, t, teamDays, newPeriod) {
   if (isTeam(k)) {
     const baseExp = t.expiry || todayStr();
     const d = new Date(baseExp); d.setDate(d.getDate() + 1); // 만료 다음날 = 다음 달 진입
@@ -199,9 +198,10 @@ function renewTerm(k, t, teamDays) {
     const expiry = lastDowOfMonth(nd.getFullYear(), nd.getMonth(), (teamDays || DEFAULT_TEAM_DAYS)[k]);
     return { ...t, expiry, history: [...(t.history || []), { at: todayStr(), until: expiry }] };
   }
+  const period = newPeriod || t.period;
   const base = (t.expiry && t.expiry >= todayStr()) ? (() => { const d = new Date(t.expiry); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })() : todayStr();
-  const expiry = regularExpiry(base, t.period, 0);
-  return { ...t, start: base, expiry, holds: [], history: [...(t.history || []), { at: todayStr(), from: base, period: t.period, until: expiry }] };
+  const expiry = regularExpiry(base, period, 0);
+  return { ...t, start: base, period, expiry, holds: [], history: [...(t.history || []), { at: todayStr(), from: base, period, until: expiry }] };
 }
 
 function weekDates(base) {
@@ -266,7 +266,7 @@ function normalize(d) {
   if (!d.teamDays) d.teamDays = { ...DEFAULT_TEAM_DAYS };
   d.members = (d.members || []).map((m) => {
     const e = m.enrollments || [...(m.session ? [m.session] : []), ...(m.team && m.team !== "없음" ? [m.team] : [])];
-    const inferred = e.some((x) => SESSIONS.includes(x)) ? "내부 회원" : (e.some((x) => TEAMS.includes(x)) ? "외부 회원" : "내부 회원");
+    const general = m.general != null ? m.general : (m.memberType ? m.memberType === "내부 회원" : e.some((x) => SESSIONS.includes(x)));
     const terms = { ...(m.terms || {}) };
     const tdays = d.teamDays || DEFAULT_TEAM_DAYS;
     e.forEach((k) => {
@@ -275,7 +275,13 @@ function normalize(d) {
       terms[k].expiry = computeExpiry(k, terms[k], tdays);
     });
     Object.keys(terms).forEach((k) => { if (!e.includes(k)) delete terms[k]; });
-    return { ...m, enrollments: e, history: m.history || [], memberType: m.memberType || inferred, instructor: m.instructor || false, vouchers: m.vouchers || [], terms };
+    // 자동 정지: 활동중인데 등록이 있고 유효한 수강권이 하나도 없으면 정지중 (복귀는 수동)
+    let status = m.status;
+    if (status === "활동중" && e.length > 0) {
+      const anyValid = e.some((k) => { const s = termStatus(terms[k]); return s.days != null && s.days >= 0; });
+      if (!anyValid) status = "정지중";
+    }
+    return { ...m, enrollments: e, status, history: m.history || [], general, instructor: m.instructor || false, vouchers: m.vouchers || [], terms };
   });
   d.classes = (d.classes || []).map((c) => ({ ...c, targets: c.targets || (c.target ? [c.target] : []), type: c.type || "weekly", kind: c.kind || (EVENT_NAMES.includes(c.label) ? "행사" : "수업"), fields: c.fields || [] }));
   if (!d.submissions) d.submissions = {};
@@ -696,8 +702,8 @@ function OperationsView({ data }) {
   }
 
   const FILTERS = [
-    { k: "전체", t: () => true }, { k: "내부", t: (m) => m.memberType === "내부 회원" },
-    { k: "외부", t: (m) => m.memberType === "외부 회원" }, { k: "지도진", t: (m) => m.instructor },
+    { k: "전체", t: () => true }, { k: "내부", t: (m) => m.general },
+    { k: "외부", t: (m) => !m.general }, { k: "지도진", t: (m) => m.instructor },
     { k: "시범단", t: (m) => (m.enrollments || []).includes("GDT(시범단)") },
     { k: "겨루기", t: (m) => (m.enrollments || []).includes("GST(겨루기)") },
     { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
@@ -783,7 +789,7 @@ function OperationsView({ data }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
                   <span style={{ fontWeight: 700 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
-                  <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>{m.memberType === "외부 회원" ? "외부" : "내부"}</span>
+                  <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>{m.general ? "내부" : "외부"}</span>
                   <span style={{ marginLeft: "auto", fontSize: 11, color: C.dim2, fontFamily: DISP }}>{m.joinDate}</span>
                 </div>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7, paddingLeft: 50 }}>
@@ -898,7 +904,7 @@ function TeamDetail({ data, team, unit, setUnit, onBack }) {
           <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
             <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
             <span style={{ fontWeight: 700, flex: 1 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
-            <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>{m.memberType === "외부 회원" ? "외부" : "내부"}</span>
+            <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>{m.general ? "내부" : "외부"}</span>
             <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(m.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{m.status}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 3, fontFamily: DISP, color: col, fontWeight: 700, fontSize: 13 }}><Flame size={12} />{trainTotal(data, m.id)}</span>
           </div>
@@ -914,12 +920,15 @@ function MembersAdmin({ data, persist }) {
   const [filter, setFilter] = useState("전체");
   const FILTERS = [
     { k: "전체", t: () => true },
-    { k: "내부", t: (m) => m.memberType === "내부 회원" },
-    { k: "외부", t: (m) => m.memberType === "외부 회원" },
+    { k: "내부", t: (m) => m.general },
+    { k: "외부", t: (m) => !m.general },
     { k: "지도진", t: (m) => m.instructor },
     { k: "시범단", t: (m) => (m.enrollments || []).includes("GDT(시범단)") },
     { k: "겨루기", t: (m) => (m.enrollments || []).includes("GST(겨루기)") },
     { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
+    { k: "활동중", t: (m) => m.status === "활동중" },
+    { k: "정지중", t: (m) => m.status === "정지중" },
+    { k: "탈퇴", t: (m) => m.status === "탈퇴" },
   ];
   const tf = (FILTERS.find((x) => x.k === filter) || FILTERS[0]).t;
   const list = data.members.filter((m) => m.name.includes(q) || m.no.includes(q) || m.phone.includes(q)).filter(tf);
@@ -948,7 +957,7 @@ function MembersAdmin({ data, persist }) {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·회원번호·연락처"
             style={{ flex: 1, background: "transparent", border: "none", color: C.text, padding: "12px 0", outline: "none", fontSize: 14, fontFamily: FONT }} />
         </div>
-        <button onClick={() => setEdit({ name: "", phone: "", enrollments: [], status: "활동중", memberType: "내부 회원", instructor: false, joinDate: new Date().toISOString().slice(0, 10) })} style={btnGold}><Plus size={16} /> 추가</button>
+        <button onClick={() => setEdit({ name: "", phone: "", enrollments: [], status: "활동중", general: true, instructor: false, joinDate: new Date().toISOString().slice(0, 10) })} style={btnGold}><Plus size={16} /> 추가</button>
       </div>
       <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
         {FILTERS.map((fl) => (
@@ -964,7 +973,7 @@ function MembersAdmin({ data, persist }) {
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 {m.instructor && <span style={{ color: C.gold }}>★</span>}
                 <span style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</span>
-                <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{m.memberType === "외부 회원" ? "외부" : "내부"}</span>
+                <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{m.general ? "내부" : "외부"}</span>
                 <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(m.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{m.status}</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: "auto", fontFamily: DISP, color: C.gold, fontWeight: 700 }}><Flame size={13} />{trainTotal(data, m.id)}</span>
               </div>
@@ -1020,7 +1029,12 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
     t.expiry = computeExpiry(k, t, teamDays);
     return { ...p, terms: { ...p.terms, [k]: t } };
   });
-  const renew = (k) => setF((p) => ({ ...p, terms: { ...p.terms, [k]: renewTerm(k, p.terms[k], teamDays) } }));
+  const renew = (k, newPeriod) => setF((p) => ({ ...p, terms: { ...p.terms, [k]: renewTerm(k, p.terms[k], teamDays, newPeriod) } }));
+  const removeHold = (k, idx) => setF((p) => {
+    const t = { ...(p.terms?.[k] || {}) }; t.holds = (t.holds || []).filter((_, i) => i !== idx);
+    t.expiry = computeExpiry(k, t, teamDays);
+    return { ...p, terms: { ...p.terms, [k]: t } };
+  });
   const addHold = (k, days) => setF((p) => {
     const t = { ...(p.terms?.[k] || {}) }; const lim = HOLD_LIMITS[t.period];
     if (!lim) { alert("일일권은 홀딩할 수 없습니다."); return p; }
@@ -1038,6 +1052,7 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
     const dow = (teamDays || DEFAULT_TEAM_DAYS)[k];
     const lim = HOLD_LIMITS[t.period];
     const [holdDays, setHoldDays] = useState("");
+    const [renewPeriod, setRenewPeriod] = useState(t.period || "1개월");
     return (
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px 12px", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
@@ -1064,16 +1079,35 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
 
         {!team && lim && (
           <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 9, padding: "9px 11px", marginTop: 9 }}>
-            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>홀딩 {(t.holds || []).length}/{lim.count}회 · {holdDaysUsed(t)}/{lim.days}일 사용</div>
+            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>홀딩 {(t.holds || []).length}/{lim.count}회 · {holdDaysUsed(t)}/{lim.days}일 사용 ({t.period} 한도)</div>
             <div style={{ display: "flex", gap: 6 }}>
-              <input type="number" value={holdDays} onChange={(e) => setHoldDays(e.target.value)} placeholder="일수" style={{ ...inp, padding: "7px 10px", fontSize: 13, flex: 1 }} />
-              <button type="button" onClick={() => { const dd = Number(holdDays); if (dd > 0) { addHold(k, dd); setHoldDays(""); } }} style={{ ...pill, padding: "7px 14px", color: C.gold, borderColor: "#5a4a22" }}>홀딩</button>
+              <input type="number" value={holdDays} onChange={(e) => setHoldDays(e.target.value)} placeholder="홀딩 일수" style={{ ...inp, padding: "7px 10px", fontSize: 13, flex: 1 }} />
+              <button type="button" onClick={() => { const dd = Number(holdDays); if (dd > 0) { addHold(k, dd); setHoldDays(""); } }} style={{ ...pill, padding: "7px 14px", color: C.gold, borderColor: "#5a4a22" }}>홀딩 추가</button>
             </div>
-            {(t.holds || []).length > 0 && <div style={{ fontSize: 10, color: C.dim2, marginTop: 7 }}>{t.holds.map((h, i) => `${h.at} (${h.days}일)`).join(" · ")}</div>}
+            {(t.holds || []).length > 0 && (
+              <div style={{ marginTop: 9, display: "flex", flexDirection: "column", gap: 5 }}>
+                {t.holds.map((h, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: C.dim, background: "#16161c", borderRadius: 7, padding: "6px 9px" }}>
+                    <span style={{ color: C.gold, fontWeight: 700 }}>{i + 1}회차</span>
+                    <span>{h.at} · {h.days}일</span>
+                    <button type="button" onClick={() => removeHold(k, i)} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "#e58282", cursor: "pointer", fontSize: 13, padding: 0 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        <button type="button" onClick={() => renew(k)} disabled={!team && !t.period} style={{ ...pill, width: "100%", justifyContent: "center", marginTop: 9, padding: "8px 0", background: (team || t.period) ? "#181206" : "transparent", color: C.gold, borderColor: "#5a4a22", opacity: (team || t.period) ? 1 : 0.4 }}>＋ 재등록 {team ? "(다음 달)" : "(기간 연장)"}</button>
+        {team ? (
+          <button type="button" onClick={() => renew(k)} style={{ ...pill, width: "100%", justifyContent: "center", marginTop: 9, padding: "8px 0", background: "#181206", color: C.gold, borderColor: "#5a4a22" }}>＋ 재등록 (다음 달)</button>
+        ) : (
+          <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
+            <select value={renewPeriod} onChange={(e) => setRenewPeriod(e.target.value)} style={{ ...inp, padding: "8px 10px", fontSize: 13, width: 110 }}>
+              {PERIODS.map((p) => <option key={p}>{p}</option>)}
+            </select>
+            <button type="button" onClick={() => renew(k, renewPeriod)} style={{ ...pill, flex: 1, justifyContent: "center", padding: "8px 0", background: "#181206", color: C.gold, borderColor: "#5a4a22" }}>＋ 이 기간으로 재등록</button>
+          </div>
+        )}
         {(t.history || []).length > 0 && <div style={{ fontSize: 10, color: C.dim2, marginTop: 7 }}>재등록 {t.history.length}회 · 최근 {t.history[t.history.length - 1].at}</div>}
       </div>
     );
@@ -1089,18 +1123,35 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
       </Field>
       <Field label="이름"><input style={inp} value={f.name} onChange={(e) => set("name", e.target.value)} /></Field>
       <Field label="연락처"><input style={inp} value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="010-0000-0000" /></Field>
-      <Field label="구분">
-        <select style={inp} value={f.memberType || "내부 회원"} onChange={(e) => set("memberType", e.target.value)}>{MEMBER_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
-        <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>내부 = 정규수업 수련자 · 외부 = 팀 활동만 하는 회원</div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 13, color: C.text, cursor: "pointer" }}>
-          <input type="checkbox" checked={!!f.instructor} onChange={(e) => set("instructor", e.target.checked)} style={{ width: 16, height: 16, accentColor: C.gold }} /> 지도진 (이름 앞에 ★ 표시)
+      <Field label="회원 유형">
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: C.text, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!f.general} onChange={(e) => setF((p) => {
+            const general = e.target.checked;
+            let enrollments = p.enrollments || []; let terms = { ...(p.terms || {}) };
+            if (!general) { enrollments = enrollments.filter((x) => !SESSIONS.includes(x)); SESSIONS.forEach((s) => delete terms[s]); }
+            return { ...p, general, enrollments, terms };
+          })} style={{ width: 17, height: 17, accentColor: C.gold }} /> 내부 회원 (정규수업 수련자)
+        </label>
+        <div style={{ fontSize: 11, color: C.dim2, margin: "5px 0 12px 25px" }}>체크하면 내부 회원, 해제하면 외부 회원(팀 활동만)으로 표시됩니다.</div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: C.text, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!f.instructor} onChange={(e) => set("instructor", e.target.checked)} style={{ width: 17, height: 17, accentColor: C.gold }} /> 지도진 (이름 앞에 ★ 표시)
         </label>
       </Field>
-      <Field label="수업 등록 (복수 선택 가능)">
-        <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>정규반</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>{SESSIONS.map((s) => <Chip key={s} on={has(s)} color={C.gold} onClick={() => toggle(s)}>{s}</Chip>)}</div>
-        <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>전문팀</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{TEAMS.map((t) => <Chip key={t} on={has(t)} color={tColor(t)} onClick={() => toggle(t)}>{t}</Chip>)}</div>
+      <Field label={f.general ? "정규수업 등록 (복수 선택 가능)" : "전문팀 등록 (복수 선택 가능)"}>
+        {f.general ? (
+          <>
+            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>정규반</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>{SESSIONS.map((s) => <Chip key={s} on={has(s)} color={C.gold} onClick={() => toggle(s)}>{s}</Chip>)}</div>
+            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>전문팀 (병행 시 선택)</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{TEAMS.map((t) => <Chip key={t} on={has(t)} color={tColor(t)} onClick={() => toggle(t)}>{t}</Chip>)}</div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>전문팀</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{TEAMS.map((t) => <Chip key={t} on={has(t)} color={tColor(t)} onClick={() => toggle(t)}>{t}</Chip>)}</div>
+            <div style={{ fontSize: 11, color: C.dim2, marginTop: 8 }}>외부 회원은 전문팀만 등록합니다. 정규수업도 들으면 위에서 '내부 회원'을 체크하세요.</div>
+          </>
+        )}
       </Field>
       {(f.enrollments || []).length > 0 && (
         <Field label="등록 기간 (각 수업별로 따로 지정)">
@@ -1839,7 +1890,8 @@ function AdminAccounts({ data, persist, me }) {
 function Member({ data, persist, me, onLogout, asAdmin }) {
   const [tab, setTab] = useState("home");
   const isOut = me.status === "탈퇴", isPaused = me.status === "정지중";
-  const tabs = isOut ? [["home", "공지", Megaphone], ["mine", "내 기록", BookOpen]]
+  const tabs = isOut ? [["home", "홈", User]]
+    : isPaused ? [["home", "홈", User], ["mine", "내 기록", BookOpen]]
     : [["home", "홈", User], ["reserve", "수업", CalendarCheck], ["events", "이벤트", Trophy], ["mine", "내 기록", BookOpen]];
   const total = trainTotal(data, me.id), month = trainMonth(data, me.id);
   const star = me.instructor ? "★ " : "";
@@ -1873,7 +1925,7 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
               </div>
             </div>
           )}
-          {!isOut && (
+          {me.status === "활동중" && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 9, marginBottom: 16 }}>
               {[["reserve", "수업 신청", CalendarCheck], ["events", "이벤트", Trophy], ["mine", "내 기록", BookOpen]].map(([id, label, Ic]) => (
                 <button key={id} onClick={() => setTab(id)} style={{ textAlign: "center", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
@@ -1881,6 +1933,11 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
                   <div style={{ fontSize: 11, color: "#cfcfd6", marginTop: 5 }}>{label}</div>
                 </button>
               ))}
+            </div>
+          )}
+          {isPaused && (
+            <div style={{ background: "#241f12", border: "1px solid #5a4a22", borderRadius: 12, padding: "13px 15px", marginBottom: 16, fontSize: 13, color: "#dcc89a", lineHeight: 1.6 }}>
+              현재 정지 상태예요. 수련 기록은 볼 수 있지만 수업·이벤트 신청은 재등록 후 가능합니다. 재등록 문의: 010-8984-3725
             </div>
           )}
           {!isOut && (
