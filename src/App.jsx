@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   Users, CalendarCheck, LayoutDashboard, Plus, Search, Trash2, Pencil,
   X, Check, Copy, ChevronLeft, ChevronRight, LogOut, Shield, User,
-  Megaphone, BookOpen, Lock, Flame, Award, KeyRound, Trophy, Medal, Star, BadgeCheck, Download, ClipboardList,
+  Megaphone, BookOpen, Lock, Flame, Award, KeyRound, Trophy, Medal, Star, BadgeCheck, Download, ClipboardList, Ticket,
 } from "lucide-react";
 
 // 배포 환경에서 브라우저 로컬 백업(window.storage가 없으면 localStorage 사용)
@@ -39,8 +39,17 @@ const FONT = "'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFo
 const DISP = "'Oswald', " + FONT;
 
 const SESSIONS = ["오전", "오후", "통합"];
+const MEMBER_TYPES = ["내부 회원", "외부 회원"];
+const PERIODS = ["일일", "1개월", "3개월", "6개월", "1년"];
+const PERIOD_MONTHS = { "1개월": 1, "3개월": 3, "6개월": 6, "1년": 12 };
+const DEFAULT_TEAM_DAYS = { "GDT(시범단)": 5, "GST(겨루기)": 6, "GPT(품새)": 0 }; // 요일 (일=0 … 토=6)
+// 정규반 홀딩 한도: 기간 → { 최대 누적일수, 최대 횟수 }
+const HOLD_LIMITS = { "1개월": { days: 7, count: 1 }, "3개월": { days: 30, count: 2 }, "6개월": { days: 60, count: 3 }, "1년": { days: 90, count: 4 } };
 const TEAMS = ["GDT(시범단)", "GST(겨루기)", "GPT(품새)"];
 const STATUSES = ["활동중", "정지중", "탈퇴"];
+const ADMIN_STATUSES = ["활동중", "휴식중", "정지", "탈퇴"];
+const ADMIN_ROLES = [["super", "관장·임원"], ["staff", "사범"]];
+const roleLabel = (r) => (r === "super" ? "관장·임원" : "사범");
 const LESSON_NAMES = ["오전 정규반", "오후 정규반", "통합반", "시범단 훈련", "겨루기팀 훈련", "품새팀 훈련"];
 const EVENT_NAMES = ["승급심사", "태권도대회", "시범공연", "이벤트"];
 const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -76,6 +85,106 @@ const ym = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).pa
 const trainTotal = (data, mid) => Object.values(data.attendance).reduce((n, day) => n + (day[mid] === "출석" ? 1 : 0), 0);
 const trainMonth = (data, mid, m = ym()) => Object.entries(data.attendance).reduce((n, [d, day]) => n + (d.startsWith(m) && day[mid] === "출석" ? 1 : 0), 0);
 
+// 최근 N개월 키 ["2026-01", ...]
+function recentMonths(n) {
+  const out = []; const d = new Date(); d.setDate(1);
+  for (let i = n - 1; i >= 0; i--) { const x = new Date(d); x.setMonth(d.getMonth() - i); out.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}`); }
+  return out;
+}
+// 데이터에 나타난 연도들 (등록/출석 기준)
+function activeYears(data) {
+  const ys = new Set();
+  (data.members || []).forEach((m) => { if (m.joinDate) ys.add(m.joinDate.slice(0, 4)); });
+  Object.keys(data.attendance || {}).forEach((d) => ys.add(d.slice(0, 4)));
+  ys.add(String(new Date().getFullYear()));
+  return [...ys].sort();
+}
+// 기간별 신규 등록 인원 (회원 필터 적용 가능)
+function newMembersByPeriod(data, periods, isYear, filterFn = () => true) {
+  return periods.map((p) => ({ p, n: (data.members || []).filter(filterFn).filter((m) => (m.joinDate || "").slice(0, isYear ? 4 : 7) === p).length }));
+}
+// 기간별 수련 참여(출석) 횟수 (회원 필터 적용 가능)
+function trainByPeriod(data, periods, isYear, memberIds = null) {
+  const idSet = memberIds ? new Set(memberIds) : null;
+  return periods.map((p) => {
+    let n = 0;
+    Object.entries(data.attendance || {}).forEach(([d, day]) => {
+      if (d.slice(0, isYear ? 4 : 7) !== p) return;
+      Object.entries(day).forEach(([mid, st]) => { if (st === "출석" && (!idSet || idSet.has(Number(mid)))) n++; });
+    });
+    return { p, n };
+  });
+}
+const periodLabel = (p, isYear) => isYear ? `${p}년` : `${Number(p.slice(5))}월`;
+
+// ── 상품권 ──
+const todayStr = () => new Date().toISOString().slice(0, 10);
+// 상품권 상태: 사용완료 / 기간만료 / 사용가능
+function voucherState(v) {
+  if (v.usedAt) return "사용완료";
+  if (v.expiry && v.expiry < todayStr()) return "기간만료";
+  return "사용가능";
+}
+const voucherColor = (s) => ({ 사용가능: "#3fa86a", 사용완료: "#56565e", 기간만료: "#a23b3b" }[s] || C.dim);
+// 만료일 계산 (days 후) — days 없으면 빈 문자열(무기한)
+function expiryFromDays(days) {
+  if (!days) return "";
+  const d = new Date(); d.setDate(d.getDate() + Number(days));
+  return d.toISOString().slice(0, 10);
+}
+
+// ── 등록 기간(수강권) ──
+// 그 달의 마지막 특정요일 날짜 (팀 만료일용). ym="YYYY-MM", dow=요일
+function lastDowOfMonth(year, month0, dow) {
+  const last = new Date(year, month0 + 1, 0); // 그 달 말일
+  const diff = (last.getDay() - dow + 7) % 7;
+  last.setDate(last.getDate() - diff);
+  return last.toISOString().slice(0, 10);
+}
+// 팀 만료일: 등록일이 속한 달의 마지막 훈련 요일. 단 이미 지났으면 다음 달의 마지막 훈련 요일
+function teamExpiry(start, dow) {
+  if (!start || dow == null) return "";
+  const d = new Date(start); const y = d.getFullYear(), m = d.getMonth();
+  let exp = lastDowOfMonth(y, m, dow);
+  if (exp < start) { const nd = new Date(y, m + 1, 1); exp = lastDowOfMonth(nd.getFullYear(), nd.getMonth(), dow); }
+  return exp;
+}
+// 정규반 만료일: 시작일 + 개월 − 1일 + 홀딩 누적일수
+function regularExpiry(start, period, holdDays = 0) {
+  if (!start || !period) return "";
+  if (period === "일일") return start;
+  const m = PERIOD_MONTHS[period]; if (!m) return "";
+  const d = new Date(start); d.setMonth(d.getMonth() + m); d.setDate(d.getDate() - 1 + (holdDays || 0));
+  return d.toISOString().slice(0, 10);
+}
+const holdDaysUsed = (t) => (t.holds || []).reduce((n, h) => n + (h.days || 0), 0);
+// 수강권 만료일 계산 (수업명 k, 팀요일맵 teamDays)
+function computeExpiry(k, t, teamDays) {
+  if (isTeam(k)) return teamExpiry(t.start, (teamDays || DEFAULT_TEAM_DAYS)[k]);
+  return regularExpiry(t.start, t.period, holdDaysUsed(t));
+}
+// 수강권 상태 (만료일 기준)
+function termStatus(t) {
+  if (!t || !t.expiry) return { label: "기간 미설정", color: C.dim, days: null };
+  const days = Math.ceil((new Date(t.expiry + "T23:59:59") - new Date()) / 86400000);
+  if (days < 0) return { label: "만료", color: "#a23b3b", days };
+  if (days <= 7) return { label: `D-${days}`, color: "#c89042", days };
+  return { label: `D-${days}`, color: "#3fa86a", days };
+}
+// 재등록: 팀=다음 달 마지막 훈련일 / 정규반=현재 만료 다음날부터 기간 연장
+function renewTerm(k, t, teamDays) {
+  if (isTeam(k)) {
+    const baseExp = t.expiry || todayStr();
+    const d = new Date(baseExp); d.setDate(d.getDate() + 1); // 만료 다음날 = 다음 달 진입
+    const nd = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    const expiry = lastDowOfMonth(nd.getFullYear(), nd.getMonth(), (teamDays || DEFAULT_TEAM_DAYS)[k]);
+    return { ...t, expiry, history: [...(t.history || []), { at: todayStr(), until: expiry }] };
+  }
+  const base = (t.expiry && t.expiry >= todayStr()) ? (() => { const d = new Date(t.expiry); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })() : todayStr();
+  const expiry = regularExpiry(base, t.period, 0);
+  return { ...t, start: base, expiry, holds: [], history: [...(t.history || []), { at: todayStr(), from: base, period: t.period, until: expiry }] };
+}
+
 function weekDates(base) {
   const d = new Date(base), dow = d.getDay();
   const mon = new Date(d); mon.setDate(d.getDate() - ((dow + 6) % 7));
@@ -99,6 +208,29 @@ function classDateInWeek(c, week) {
 }
 const dowOf = (date) => new Date(date + "T00:00:00").getDay();
 
+// ── 월 달력 헬퍼 ──
+function monthMatrix(base) {
+  const d = new Date(base); const y = d.getFullYear(), m = d.getMonth();
+  const startDow = new Date(y, m, 1).getDay();
+  const daysIn = new Date(y, m + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let day = 1; day <= daysIn; day++) cells.push(`${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+const monthLabel = (base) => { const d = new Date(base); return `${d.getFullYear()}년 ${d.getMonth() + 1}월`; };
+const shiftMonth = (base, delta) => { const d = new Date(base); d.setDate(1); d.setMonth(d.getMonth() + delta); return d.toISOString().slice(0, 10); };
+// 특정 날짜에 열리는 수업 목록 (kind/회원 필터 옵션)
+function classesOnDate(classes, date, opt = {}) {
+  const dow = dowOf(date);
+  return classes.filter((c) => {
+    if (opt.kind && (c.kind || "수업") !== opt.kind) return false;
+    if (opt.me && !canTake(opt.me, c)) return false;
+    return c.type === "once" ? c.date === date : c.day === dow;
+  });
+}
+
 // 엑셀에서 바로 열리는 CSV 내려받기 (UTF-8 BOM 포함 → 한글 안 깨짐)
 function downloadCSV(filename, rows) {
   const csv = rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
@@ -111,12 +243,24 @@ function downloadCSV(filename, rows) {
 function normalize(d) {
   if (!d.admins) d.admins = [{ id: 1, loginId: "가온", pw: "0000", name: "관장", role: "super" }];
   d.admins = d.admins.map((a) => (a.role === "super" && a.loginId === "master") ? { ...a, loginId: "가온" } : a);
+  d.admins = d.admins.map((a) => ({ ...a, status: a.status || "활동중" }));
+  if (!d.teamDays) d.teamDays = { ...DEFAULT_TEAM_DAYS };
   d.members = (d.members || []).map((m) => {
     const e = m.enrollments || [...(m.session ? [m.session] : []), ...(m.team && m.team !== "없음" ? [m.team] : [])];
-    return { ...m, enrollments: e, history: m.history || [] };
+    const inferred = e.some((x) => SESSIONS.includes(x)) ? "내부 회원" : (e.some((x) => TEAMS.includes(x)) ? "외부 회원" : "내부 회원");
+    const terms = { ...(m.terms || {}) };
+    const tdays = d.teamDays || DEFAULT_TEAM_DAYS;
+    e.forEach((k) => {
+      if (!terms[k]) terms[k] = { start: m.joinDate || "", period: "", holds: [], history: [] };
+      if (!terms[k].holds) terms[k].holds = [];
+      terms[k].expiry = computeExpiry(k, terms[k], tdays);
+    });
+    Object.keys(terms).forEach((k) => { if (!e.includes(k)) delete terms[k]; });
+    return { ...m, enrollments: e, history: m.history || [], memberType: m.memberType || inferred, instructor: m.instructor || false, vouchers: m.vouchers || [], terms };
   });
   d.classes = (d.classes || []).map((c) => ({ ...c, targets: c.targets || (c.target ? [c.target] : []), type: c.type || "weekly", kind: c.kind || (EVENT_NAMES.includes(c.label) ? "행사" : "수업"), fields: c.fields || [] }));
   if (!d.submissions) d.submissions = {};
+  if (!d.voucherTemplates) d.voucherTemplates = [];
   return d;
 }
 
@@ -132,8 +276,8 @@ const SAMPLE = {
       { id: 3, date: "2026-03-10", category: "공연", title: "신촌 거리 시범공연 참여" },
       { id: 4, date: "2026-04-20", category: "자격증", title: "생활스포츠지도사 2급 (태권도)" },
     ] },
-    { id: 2, no: "25-002", name: "이수민", phone: "010-1234-0002", enrollments: ["오후"], status: "활동중", joinDate: "2025-05-11" },
-    { id: 3, no: "24-001", name: "박서연", phone: "010-1234-0003", enrollments: ["오전", "GPT(품새)"], status: "활동중", joinDate: "2024-11-20" },
+    { id: 2, no: "25-002", name: "이수민", phone: "010-1234-0002", enrollments: ["오후"], status: "활동중", joinDate: "2025-05-11", terms: { "오후": { start: "2026-06-01", period: "1개월", expiry: "2026-06-30", history: [] } } },
+    { id: 3, no: "24-001", name: "박서연", phone: "010-1234-0003", enrollments: ["오전", "GPT(품새)"], status: "활동중", joinDate: "2024-11-20", terms: { "오전": { start: "2026-04-01", period: "3개월", expiry: "2026-06-30", history: [] }, "GPT(품새)": { start: "2026-06-01", period: "1개월", expiry: "2026-06-30", history: [] } } },
     { id: 4, no: "25-003", name: "정민재", phone: "010-1234-0004", enrollments: ["통합", "GDT(시범단)"], status: "정지중", joinDate: "2025-01-15" },
     { id: 5, no: "26-001", name: "최유진", phone: "010-1234-0005", enrollments: ["오후"], status: "활동중", joinDate: "2026-06-01" },
     { id: 6, no: "24-002", name: "강도현", phone: "010-1234-0006", enrollments: ["오후", "GST(겨루기)"], status: "탈퇴", joinDate: "2024-09-08" },
@@ -150,6 +294,10 @@ const SAMPLE = {
   submissions: {},
   reservations: {},
   attendance: {},
+  voucherTemplates: [
+    { id: 1, name: "수련비 1만원 할인권", desc: "다음 달 수련비에서 1만원 할인", days: 30 },
+    { id: 2, name: "도복 상품권", desc: "도복 1벌 교환권", days: 60 },
+  ],
   notices: [{ id: 1, date: "2026-06-01", title: "6월 정상 운영 안내", body: "이번 달도 정규 수업 정상 진행합니다. 매트 위에서 만나요!" }],
 };
 
@@ -208,9 +356,17 @@ export default function App() {
         {view === "auth" && <Auth data={data}
           onAdmin={(a) => { setAdmin(a); setView("admin"); }}
           onMember={(m) => { setUser(m); setView("member"); }} />}
-        {view === "admin" && admin && <Admin data={data} persist={persist} admin={admin} onLogout={() => { setAdmin(null); setView("auth"); }} />}
+        {view === "admin" && admin && <Admin data={data} persist={persist} admin={admin}
+          onViewMember={() => {
+            const m = data.members.find((x) => x.no === (admin.memberNo || "").trim());
+            if (!m) { alert("이 관리자 계정에 연결된 회원번호가 없습니다.\n관리자 탭에서 본인 계정을 열어 '연결 회원번호'를 입력해 주세요."); return; }
+            setUser(m); setView("member");
+          }}
+          onLogout={() => { setAdmin(null); setView("auth"); }} />}
         {view === "member" && user && <Member data={data} persist={persist}
-          me={data.members.find((x) => x.id === user.id) || user} onLogout={() => { setUser(null); setView("auth"); }} />}
+          me={data.members.find((x) => x.id === user.id) || user}
+          asAdmin={!!admin}
+          onLogout={() => { if (admin) { setUser(null); setView("admin"); } else { setUser(null); setView("auth"); } }} />}
       </div>
     </div>
   );
@@ -232,6 +388,7 @@ function Auth({ data, onAdmin, onMember }) {
   const loginAdmin = () => {
     const a = data.admins.find((x) => x.loginId === lid.trim() && x.pw === pw.trim());
     if (!a) return setErr("아이디 또는 비밀번호가 일치하지 않습니다.");
+    if (a.status === "정지" || a.status === "탈퇴") return setErr(`${a.status} 상태의 계정입니다. 관장님께 문의해 주세요.`);
     setErr(""); onAdmin(a);
   };
 
@@ -285,35 +442,38 @@ function Auth({ data, onAdmin, onMember }) {
 }
 
 // ═══════════ 관리자 ═══════════
-function Admin({ data, persist, admin, onLogout }) {
+function Admin({ data, persist, admin, onLogout, onViewMember }) {
   const [tab, setTab] = useState("dashboard");
   const wide = useWide();
   const tabs = [
     ["dashboard", "대시보드", LayoutDashboard],
     ["members", "회원", Users],
-    ["training", "수련현황", Flame],
+    ["training", "운영", Flame],
     ["classes", "수업", BookOpen],
     ["events", "이벤트", Trophy],
     ["reserve", "예약·출석", CalendarCheck],
+    ["vouchers", "상품권", Ticket],
     ["notice", "공지", Megaphone],
-    ...(admin.role === "super" ? [["accounts", "관리자", KeyRound]] : []),
+    ...(admin.role === "super" ? [["accounts", "관리자", KeyRound], ["settings", "설정", LayoutDashboard]] : []),
   ];
   const content = (
     <>
       {tab === "dashboard" && <Dashboard data={data} wide={wide} />}
       {tab === "members" && <MembersAdmin data={data} persist={persist} />}
-      {tab === "training" && <TrainingView data={data} />}
+      {tab === "training" && <OperationsView data={data} />}
       {tab === "classes" && <ClassesAdmin data={data} persist={persist} kind="수업" />}
       {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" />}
       {tab === "reserve" && <ReserveAdmin data={data} persist={persist} />}
+      {tab === "vouchers" && <VouchersAdmin data={data} persist={persist} />}
       {tab === "notice" && <NoticeAdmin data={data} persist={persist} />}
       {tab === "accounts" && admin.role === "super" && <AdminAccounts data={data} persist={persist} me={admin} />}
+      {tab === "settings" && admin.role === "super" && <SettingsAdmin data={data} persist={persist} />}
     </>
   );
   if (wide) {
     return (
       <div style={{ display: "flex", gap: 28, paddingTop: 26 }}>
-        <Sidebar tabs={tabs} tab={tab} setTab={setTab} admin={admin} onLogout={onLogout} />
+        <Sidebar tabs={tabs} tab={tab} setTab={setTab} admin={admin} onLogout={onLogout} onViewMember={onViewMember} />
         <div style={{ flex: 1, minWidth: 0 }}>{content}</div>
       </div>
     );
@@ -321,13 +481,14 @@ function Admin({ data, persist, admin, onLogout }) {
   return (
     <>
       <TopBar role="관리자" name={admin.name} onLogout={onLogout} />
+      <button onClick={onViewMember} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "11px 0", marginBottom: 14, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><User size={15} /> 수련자 화면 보기 (내 수업·기록)</button>
       <TabBar tabs={tabs} tab={tab} setTab={setTab} />
       {content}
     </>
   );
 }
 
-function Sidebar({ tabs, tab, setTab, admin, onLogout }) {
+function Sidebar({ tabs, tab, setTab, admin, onLogout, onViewMember }) {
   return (
     <aside style={{ width: 212, flexShrink: 0, position: "sticky", top: 26, alignSelf: "flex-start", height: "calc(100vh - 52px)", display: "flex", flexDirection: "column" }}>
       <div style={{ paddingBottom: 18, borderBottom: `1px solid ${C.line}`, marginBottom: 14 }}>
@@ -347,6 +508,7 @@ function Sidebar({ tabs, tab, setTab, admin, onLogout }) {
           );
         })}
       </nav>
+      <button onClick={onViewMember} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", marginBottom: 8, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><User size={15} /> 수련자 화면 보기</button>
       <button onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", background: "transparent", border: `1px solid ${C.line}`, borderRadius: 11, color: C.dim, fontSize: 13, fontWeight: 600, cursor: "pointer" }}><LogOut size={15} /> 로그아웃</button>
     </aside>
   );
@@ -420,36 +582,208 @@ function Dashboard({ data, wide }) {
   );
 }
 
-// ── 수련현황 (전체 회원 수련 횟수) ──
-function TrainingView({ data }) {
-  const rows = data.members.filter((m) => m.status !== "탈퇴")
-    .map((m) => ({ m, total: trainTotal(data, m.id), month: trainMonth(data, m.id) }))
-    .sort((a, b) => b.total - a.total);
+// ── 막대 그래프 ──
+function BarChart({ rows, color, isYear }) {
+  const max = Math.max(1, ...rows.map((r) => r.n));
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 110, padding: "0 2px" }}>
+      {rows.map((r, i) => {
+        const last = i === rows.length - 1;
+        return (
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 10, color: last ? color : C.dim2, fontFamily: DISP, fontWeight: 700 }}>{r.n}</span>
+            <div style={{ width: "100%", height: `${Math.max(3, (r.n / max) * 80)}px`, background: color, opacity: last ? 1 : 0.55, borderRadius: "4px 4px 0 0", transition: "height .2s" }} />
+            <span style={{ fontSize: 9, color: last ? color : C.dim2 }}>{periodLabel(r.p, isYear)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── 운영 (전체 현황 + 팀 드릴다운) ──
+function OperationsView({ data }) {
+  const [unit, setUnit] = useState("month"); // month | year
+  const [team, setTeam] = useState(null);    // 팀 상세
+  const [filter, setFilter] = useState("전체");
+  const [panel, setPanel] = useState("members"); // 카드 선택: members | new | train | team
+  const isYear = unit === "year";
+  const periods = isYear ? activeYears(data) : recentMonths(6);
+
+  const active = data.members.filter((m) => m.status === "활동중");
+  const newThis = data.members.filter((m) => (m.joinDate || "").slice(0, 7) === ym()).length;
+  const trainThis = data.members.reduce((n, m) => n + trainMonth(data, m.id), 0);
+  const teamCount = active.filter((m) => (m.enrollments || []).some(isTeam)).length;
+
+  if (team) return <TeamDetail data={data} team={team} unit={unit} setUnit={setUnit} onBack={() => setTeam(null)} />;
+
+  const FILTERS = [
+    { k: "전체", t: () => true }, { k: "내부", t: (m) => m.memberType === "내부 회원" },
+    { k: "외부", t: (m) => m.memberType === "외부 회원" }, { k: "지도진", t: (m) => m.instructor },
+    { k: "시범단", t: (m) => (m.enrollments || []).includes("GDT(시범단)") },
+    { k: "겨루기", t: (m) => (m.enrollments || []).includes("GST(겨루기)") },
+    { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
+  ];
+  const tf = (FILTERS.find((x) => x.k === filter) || FILTERS[0]).t;
+  const rows = data.members.filter((m) => m.status !== "탈퇴").filter(tf)
+    .map((m) => ({ m, total: trainTotal(data, m.id), month: trainMonth(data, m.id) })).sort((a, b) => b.total - a.total);
   const max = Math.max(1, ...rows.map((r) => r.total));
-  const sum = rows.reduce((n, r) => n + r.total, 0);
+
+  const newRows = newMembersByPeriod(data, periods, isYear);
+  const trainRows = trainByPeriod(data, periods, isYear);
+  const teamRows = TEAMS.map((t) => ({ t, n: active.filter((m) => (m.enrollments || []).includes(t)).length }));
+  const teamMax = Math.max(1, ...teamRows.map((r) => r.n));
+  const newList = data.members.filter((m) => (m.joinDate || "").slice(0, 7) === ym()).sort((a, b) => (b.joinDate || "").localeCompare(a.joinDate || ""));
+
+  const cards = [
+    { k: "members", label: "활동 회원", value: active.length, unit: "명" },
+    { k: "new", label: "이번달 신규", value: `+${newThis}`, unit: "명" },
+    { k: "train", label: "이번달 수련", value: trainThis, unit: "회" },
+    { k: "team", label: "팀 인원", value: teamCount, unit: "명" },
+  ];
 
   return (
     <div>
-      <Grid3>
-        <Stat label="누적 수련" value={sum} unit="회" accent />
-        <Stat label="이번달" value={rows.reduce((n, r) => n + r.month, 0)} unit="회" />
-        <Stat label="대상 회원" value={rows.length} unit="명" />
-      </Grid3>
-      <Panel title="회원별 수련 횟수" sub="누적 출석 기준 · 내림차순">
-        {rows.length === 0 ? <Empty>데이터가 없습니다.</Empty> : rows.map((r, i) => (
-          <div key={r.m.id} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
-              <span style={{ fontFamily: DISP, fontWeight: 700, color: i < 3 ? C.gold : C.dim2, minWidth: 20, fontSize: 15 }}>{i + 1}</span>
-              <span style={{ fontWeight: 700 }}>{r.m.name}</span>
-              <span style={{ fontSize: 11, color: C.dim2 }}>{r.m.no}</span>
-              <span style={{ marginLeft: "auto", fontFamily: DISP, fontWeight: 700, color: C.gold, fontSize: 16 }}>{r.total}<span style={{ fontSize: 11, color: C.dim, marginLeft: 2 }}>회</span></span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ flex: 1, height: 7, background: "#202028", borderRadius: 5, overflow: "hidden" }}>
-                <div style={{ width: `${(r.total / max) * 100}%`, height: "100%", background: C.goldGrad, borderRadius: 5 }} />
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
+        <span style={{ fontSize: 17, fontWeight: 800 }}>운영 현황</span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 5 }}>
+          {[["month", "월별"], ["year", "연별"]].map(([v, l]) => (
+            <button key={v} onClick={() => setUnit(v)} style={{ fontSize: 12, padding: "6px 13px", borderRadius: 9, border: `1px solid ${unit === v ? "transparent" : C.line}`, background: unit === v ? C.goldGrad : "transparent", color: unit === v ? "#1a1305" : C.dim, fontWeight: 700, cursor: "pointer" }}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 7, marginBottom: 18 }}>
+        {cards.map((c) => {
+          const on = panel === c.k;
+          return (
+            <button key={c.k} onClick={() => setPanel(c.k)} style={{ textAlign: "center", background: on ? "#181206" : C.card, border: `1px solid ${on ? C.gold : C.line}`, borderRadius: 12, padding: "10px 4px", cursor: "pointer" }}>
+              <div style={{ fontSize: 10, color: on ? C.gold : C.dim, lineHeight: 1.2 }}>{c.label}</div>
+              <div style={{ fontFamily: DISP, fontSize: 19, fontWeight: 700, marginTop: 4, color: on ? C.gold : C.text }}>{c.value}<span style={{ fontSize: 9, fontWeight: 600, color: C.dim, marginLeft: 1, fontFamily: FONT }}>{c.unit}</span></div>
+            </button>
+          );
+        })}
+      </div>
+
+      {panel === "members" && (
+        <>
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "0 0 14px", paddingBottom: 2 }}>
+            {FILTERS.map((fl) => (
+              <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
+            ))}
+          </div>
+          <Panel title={`회원별 수련 순위 · ${filter}`} sub="누적 출석 기준">
+            {rows.length === 0 ? <Empty>데이터가 없습니다.</Empty> : rows.map((r, i) => (
+              <div key={r.m.id} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+                  <span style={{ fontFamily: DISP, fontWeight: 700, color: i < 3 ? C.gold : C.dim2, minWidth: 20, fontSize: 15 }}>{i + 1}</span>
+                  <span style={{ fontWeight: 700 }}>{r.m.instructor && <span style={{ color: C.gold }}>★</span>}{r.m.name}</span>
+                  <span style={{ fontSize: 11, color: C.dim2 }}>{r.m.no}</span>
+                  <span style={{ marginLeft: "auto", fontFamily: DISP, fontWeight: 700, color: C.gold, fontSize: 16 }}>{r.total}<span style={{ fontSize: 11, color: C.dim, marginLeft: 2 }}>회</span></span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, height: 7, background: "#202028", borderRadius: 5, overflow: "hidden" }}>
+                    <div style={{ width: `${(r.total / max) * 100}%`, height: "100%", background: C.goldGrad, borderRadius: 5 }} />
+                  </div>
+                  <span style={{ fontSize: 11, color: C.dim2, minWidth: 60, textAlign: "right" }}>이번달 {r.month}회</span>
+                </div>
               </div>
-              <span style={{ fontSize: 11, color: C.dim2, minWidth: 60, textAlign: "right" }}>이번달 {r.month}회</span>
-            </div>
+            ))}
+          </Panel>
+        </>
+      )}
+
+      {panel === "new" && (
+        <>
+          <Panel title={`신규 등록 인원 · ${isYear ? "연별" : "월별"}`} sub="가입일 기준">
+            <BarChart rows={newRows} color={C.gold} isYear={isYear} />
+          </Panel>
+          <Panel title={`이번달 신규 회원 · ${newList.length}명`} sub="누가 어디에 등록했는지">
+            {newList.length === 0 ? <Empty>이번달 신규 등록이 없습니다.</Empty> : newList.map((m) => (
+              <div key={m.id} style={{ padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
+                  <span style={{ fontWeight: 700 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
+                  <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>{m.memberType === "외부 회원" ? "외부" : "내부"}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: C.dim2, fontFamily: DISP }}>{m.joinDate}</span>
+                </div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 7, paddingLeft: 50 }}>
+                  {(m.enrollments || []).length === 0 ? <span style={{ fontSize: 11, color: C.dim2 }}>등록 수업 없음</span>
+                    : (m.enrollments || []).map((e) => <span key={e} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "2px 7px" }}>{e}</span>)}
+                </div>
+              </div>
+            ))}
+          </Panel>
+        </>
+      )}
+
+      {panel === "train" && (
+        <Panel title={`수련 참여 수 · ${isYear ? "연별" : "월별"}`} sub="출석 기준 (전체 합계)">
+          <BarChart rows={trainRows} color="#3fa86a" isYear={isYear} />
+        </Panel>
+      )}
+
+      {panel === "team" && (
+        <Panel title="팀별 인원" sub="활동중 기준 · 탭하면 팀 상세">
+          {teamRows.map((r) => (
+            <button key={r.t} onClick={() => setTeam(r.t)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 0", background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
+              <span style={{ fontSize: 13, color: C.text, minWidth: 84, textAlign: "left", fontWeight: 600 }}>{r.t.replace(/\(.*\)/, "")} <span style={{ fontSize: 10, color: C.dim2 }}>{r.t.match(/\((.*)\)/)?.[1]}</span></span>
+              <div style={{ flex: 1, height: 10, background: "#202028", borderRadius: 5, overflow: "hidden" }}>
+                <div style={{ width: `${(r.n / teamMax) * 100}%`, height: "100%", background: tColor(r.t), borderRadius: 5 }} />
+              </div>
+              <span style={{ fontSize: 13, fontFamily: DISP, fontWeight: 700, color: tColor(r.t), minWidth: 28, textAlign: "right" }}>{r.n}</span>
+              <ChevronRight size={15} color={C.dim} />
+            </button>
+          ))}
+        </Panel>
+      )}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, unit, accent }) {
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 15px" }}>
+      <div style={{ fontSize: 12, color: C.dim }}>{label}</div>
+      <div style={{ fontFamily: DISP, fontSize: 26, fontWeight: 700, marginTop: 4, color: accent ? C.gold : C.text }}>{value}<span style={{ fontSize: 12, fontWeight: 600, color: C.dim, marginLeft: 3, fontFamily: FONT }}>{unit}</span></div>
+    </div>
+  );
+}
+
+function TeamDetail({ data, team, unit, setUnit, onBack }) {
+  const isYear = unit === "year";
+  const periods = isYear ? activeYears(data) : recentMonths(6);
+  const members = data.members.filter((m) => (m.enrollments || []).includes(team) && m.status !== "탈퇴");
+  const ids = members.map((m) => m.id);
+  const trainRows = trainByPeriod(data, periods, isYear, ids);
+  const col = tColor(team);
+  const badge = (s) => ({ 활동중: C.gold, 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
+  return (
+    <div>
+      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 운영 현황으로</button>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <div style={{ width: 12, height: 12, borderRadius: 4, background: col }} />
+        <span style={{ fontSize: 18, fontWeight: 800 }}>{team}</span>
+        <span style={{ marginLeft: "auto", fontFamily: DISP, fontWeight: 700, color: col, fontSize: 20 }}>{members.length}<span style={{ fontSize: 12, color: C.dim, marginLeft: 2, fontFamily: FONT }}>명</span></span>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 5, marginBottom: 12 }}>
+        {[["month", "월별"], ["year", "연별"]].map(([v, l]) => (
+          <button key={v} onClick={() => setUnit(v)} style={{ fontSize: 12, padding: "6px 13px", borderRadius: 9, border: `1px solid ${unit === v ? "transparent" : C.line}`, background: unit === v ? C.goldGrad : "transparent", color: unit === v ? "#1a1305" : C.dim, fontWeight: 700, cursor: "pointer" }}>{l}</button>
+        ))}
+      </div>
+      <Panel title={`수련 참여 수 · ${isYear ? "연별" : "월별"}`} sub={`${team} 팀 출석 합계`}>
+        <BarChart rows={trainRows} color={col} isYear={isYear} />
+      </Panel>
+
+      <Panel title="팀 명단" sub={`${members.length}명`}>
+        {members.length === 0 ? <Empty>팀원이 없습니다.</Empty> : members.map((m) => (
+          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
+            <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
+            <span style={{ fontWeight: 700, flex: 1 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
+            <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>{m.memberType === "외부 회원" ? "외부" : "내부"}</span>
+            <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(m.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{m.status}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 3, fontFamily: DISP, color: col, fontWeight: 700, fontSize: 13 }}><Flame size={12} />{trainTotal(data, m.id)}</span>
           </div>
         ))}
       </Panel>
@@ -459,16 +793,31 @@ function TrainingView({ data }) {
 
 function MembersAdmin({ data, persist }) {
   const [q, setQ] = useState(""); const [edit, setEdit] = useState(null); const [hist, setHist] = useState(null);
-  const list = data.members.filter((m) => m.name.includes(q) || m.no.includes(q) || m.phone.includes(q));
+  const [vouchMember, setVouchMember] = useState(null);
+  const [filter, setFilter] = useState("전체");
+  const FILTERS = [
+    { k: "전체", t: () => true },
+    { k: "내부", t: (m) => m.memberType === "내부 회원" },
+    { k: "외부", t: (m) => m.memberType === "외부 회원" },
+    { k: "지도진", t: (m) => m.instructor },
+    { k: "시범단", t: (m) => (m.enrollments || []).includes("GDT(시범단)") },
+    { k: "겨루기", t: (m) => (m.enrollments || []).includes("GST(겨루기)") },
+    { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
+  ];
+  const tf = (FILTERS.find((x) => x.k === filter) || FILTERS[0]).t;
+  const list = data.members.filter((m) => m.name.includes(q) || m.no.includes(q) || m.phone.includes(q)).filter(tf);
   const nextNo = () => {
     const p = yy();
     const n = Math.max(0, ...data.members.filter((m) => m.no.startsWith(p)).map((m) => Number(m.no.split("-")[1]))) + 1;
     return `${p}-${String(n).padStart(3, "0")}`;
   };
   const save = (mem) => {
+    const cleanNo = (mem.no || "").trim() || nextNo();
+    const dup = data.members.some((x) => x.no === cleanNo && x.id !== mem.id);
+    if (dup) { alert(`회원번호 ${cleanNo} 는 이미 사용 중입니다. 다른 번호를 입력해 주세요.`); return; }
     let next;
-    if (mem.id) next = { ...data, members: data.members.map((x) => x.id === mem.id ? mem : x) };
-    else next = { ...data, members: [...data.members, { ...mem, id: Math.max(0, ...data.members.map((x) => x.id)) + 1, no: nextNo() }] };
+    if (mem.id) next = { ...data, members: data.members.map((x) => x.id === mem.id ? { ...mem, no: cleanNo } : x) };
+    else next = { ...data, members: [...data.members, { ...mem, id: Math.max(0, ...data.members.map((x) => x.id)) + 1, no: cleanNo }] };
     persist(next); setEdit(null);
   };
   const remove = (id) => { if (confirm("회원 데이터를 완전히 삭제할까요? (탈퇴 처리는 상태 변경 권장)")) persist({ ...data, members: data.members.filter((x) => x.id !== id) }); };
@@ -476,59 +825,167 @@ function MembersAdmin({ data, persist }) {
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "0 13px" }}>
           <Search size={16} color={C.dim} />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·회원번호·연락처"
             style={{ flex: 1, background: "transparent", border: "none", color: C.text, padding: "12px 0", outline: "none", fontSize: 14, fontFamily: FONT }} />
         </div>
-        <button onClick={() => setEdit({ name: "", phone: "", enrollments: [], status: "활동중", joinDate: new Date().toISOString().slice(0, 10) })} style={btnGold}><Plus size={16} /> 추가</button>
+        <button onClick={() => setEdit({ name: "", phone: "", enrollments: [], status: "활동중", memberType: "내부 회원", instructor: false, joinDate: new Date().toISOString().slice(0, 10) })} style={btnGold}><Plus size={16} /> 추가</button>
       </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
+        {FILTERS.map((fl) => (
+          <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 10 }}>{filter} · 총 {list.length}명</div>
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
         {list.length === 0 ? <Empty>회원이 없습니다.</Empty> : list.map((m) => (
           <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderBottom: `1px solid ${C.line}` }}>
             <div style={{ fontFamily: DISP, width: 44, textAlign: "center", fontSize: 12, color: C.dim2, fontWeight: 700 }}>{m.no}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>{m.name}
+              <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}>
+                {m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}
+                <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{m.memberType === "외부 회원" ? "외부" : "내부"}</span>
                 <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(m.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{m.status}</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: "auto", fontFamily: DISP, color: C.gold, fontWeight: 700 }}><Flame size={13} />{trainTotal(data, m.id)}</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-                {(m.enrollments || []).map((e) => <span key={e} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "2px 6px" }}>{e}</span>)}
+                {(m.enrollments || []).map((e) => {
+                  const st = termStatus(m.terms?.[e]);
+                  return (
+                    <span key={e} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "2px 6px" }}>
+                      {e}{st.days !== null && <span style={{ fontSize: 9, color: st.color === "#3fa86a" ? "#dfffe9" : "#1a1305", background: st.color, borderRadius: 3, padding: "0 4px" }}>{st.label}</span>}
+                    </span>
+                  );
+                })}
               </div>
             </div>
             <button onClick={() => setHist(m)} style={iconBtn} title="경력 관리"><Award size={15} /></button>
+            <button onClick={() => setVouchMember(m)} style={iconBtn} title="상품권 발급"><Ticket size={15} /></button>
             <button onClick={() => setEdit(m)} style={iconBtn}><Pencil size={15} /></button>
             <button onClick={() => remove(m.id)} style={iconBtn}><Trash2 size={15} /></button>
           </div>
         ))}
       </div>
-      {edit && <MemberForm member={edit} previewNo={edit.id ? edit.no : nextNo()} onSave={save} onClose={() => setEdit(null)} />}
+      {edit && <MemberForm member={edit} previewNo={edit.id ? edit.no : nextNo()} teamDays={data.teamDays} onSave={save} onClose={() => setEdit(null)} />}
       {hist && <HistoryManager member={hist} onSave={(mem) => { save(mem); setHist(null); }} onClose={() => setHist(null)} />}
+      {vouchMember && <MemberVoucherModal data={data} persist={persist} member={data.members.find((x) => x.id === vouchMember.id) || vouchMember} onClose={() => setVouchMember(null)} />}
     </div>
   );
 }
 
-function MemberForm({ member, previewNo, onSave, onClose }) {
-  const [f, setF] = useState(member);
+function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
+  const [f, setF] = useState(member.id ? member : { ...member, no: previewNo, terms: member.terms || {} });
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
-  const toggle = (v) => setF((p) => { const s = new Set(p.enrollments || []); s.has(v) ? s.delete(v) : s.add(v); return { ...p, enrollments: [...s] }; });
   const has = (v) => (f.enrollments || []).includes(v);
+  const toggle = (v) => setF((p) => {
+    const on = (p.enrollments || []).includes(v);
+    const enrollments = on ? p.enrollments.filter((x) => x !== v) : [...(p.enrollments || []), v];
+    const terms = { ...(p.terms || {}) };
+    if (on) delete terms[v];
+    else {
+      const start = p.joinDate || todayStr();
+      const period = isTeam(v) ? "" : "1개월";
+      const t0 = { start, period, holds: [], history: [] };
+      terms[v] = { ...t0, expiry: computeExpiry(v, t0, teamDays) };
+    }
+    return { ...p, enrollments, terms };
+  });
+  const setTerm = (k, key, val) => setF((p) => {
+    const t = { ...(p.terms?.[k] || {}) }; t[key] = val;
+    t.expiry = computeExpiry(k, t, teamDays);
+    return { ...p, terms: { ...p.terms, [k]: t } };
+  });
+  const renew = (k) => setF((p) => ({ ...p, terms: { ...p.terms, [k]: renewTerm(k, p.terms[k], teamDays) } }));
+  const addHold = (k, days) => setF((p) => {
+    const t = { ...(p.terms?.[k] || {}) }; const lim = HOLD_LIMITS[t.period];
+    if (!lim) { alert("일일권은 홀딩할 수 없습니다."); return p; }
+    const usedCnt = (t.holds || []).length, usedDays = holdDaysUsed(t);
+    if (usedCnt >= lim.count) { alert(`홀딩 횟수를 모두 사용했습니다. (${t.period} 최대 ${lim.count}회)`); return p; }
+    if (usedDays + days > lim.days) { alert(`홀딩 가능 일수를 초과합니다. (${t.period} 최대 ${lim.days}일 · 현재 ${usedDays}일 사용)`); return p; }
+    t.holds = [...(t.holds || []), { at: todayStr(), days }];
+    t.expiry = computeExpiry(k, t, teamDays);
+    return { ...p, terms: { ...p.terms, [k]: t } };
+  });
+
+  const TermCard = ({ k }) => {
+    const t = f.terms?.[k] || {}; const st = termStatus(t);
+    const team = isTeam(k);
+    const dow = (teamDays || DEFAULT_TEAM_DAYS)[k];
+    const lim = HOLD_LIMITS[t.period];
+    const [holdDays, setHoldDays] = useState("");
+    return (
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px 12px", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: tColor(k), borderRadius: 5, padding: "2px 7px" }}>{k}</span>
+          <span style={{ fontSize: 10, color: C.dim2 }}>{team ? "팀 · 월 단위" : "정규반"}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: st.color, marginLeft: "auto" }}>{st.label}{t.expiry ? ` · ~${t.expiry}` : ""}</span>
+        </div>
+        <div style={{ display: "flex", gap: 7 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, color: C.dim2, marginBottom: 3 }}>{team ? "등록일" : "시작일"}</div>
+            <input type="date" style={{ ...inp, padding: "8px 10px", fontSize: 13 }} value={t.start || ""} onChange={(e) => setTerm(k, "start", e.target.value)} />
+          </div>
+          {!team && (
+            <div style={{ width: 96 }}>
+              <div style={{ fontSize: 10, color: C.dim2, marginBottom: 3 }}>기간</div>
+              <select style={{ ...inp, padding: "8px 10px", fontSize: 13 }} value={t.period || ""} onChange={(e) => setTerm(k, "period", e.target.value)}>
+                <option value="">미설정</option>
+                {PERIODS.map((p) => <option key={p}>{p}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        {team && <div style={{ fontSize: 11, color: C.dim2, marginTop: 7 }}>매월 마지막 {DAYS[dow]}요일 수련까지 유효 · 이후 재등록 필요</div>}
+
+        {!team && lim && (
+          <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 9, padding: "9px 11px", marginTop: 9 }}>
+            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>홀딩 {(t.holds || []).length}/{lim.count}회 · {holdDaysUsed(t)}/{lim.days}일 사용</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input type="number" value={holdDays} onChange={(e) => setHoldDays(e.target.value)} placeholder="일수" style={{ ...inp, padding: "7px 10px", fontSize: 13, flex: 1 }} />
+              <button type="button" onClick={() => { const dd = Number(holdDays); if (dd > 0) { addHold(k, dd); setHoldDays(""); } }} style={{ ...pill, padding: "7px 14px", color: C.gold, borderColor: "#5a4a22" }}>홀딩</button>
+            </div>
+            {(t.holds || []).length > 0 && <div style={{ fontSize: 10, color: C.dim2, marginTop: 7 }}>{t.holds.map((h, i) => `${h.at} (${h.days}일)`).join(" · ")}</div>}
+          </div>
+        )}
+
+        <button type="button" onClick={() => renew(k)} disabled={!team && !t.period} style={{ ...pill, width: "100%", justifyContent: "center", marginTop: 9, padding: "8px 0", background: (team || t.period) ? "#181206" : "transparent", color: C.gold, borderColor: "#5a4a22", opacity: (team || t.period) ? 1 : 0.4 }}>＋ 재등록 {team ? "(다음 달)" : "(기간 연장)"}</button>
+        {(t.history || []).length > 0 && <div style={{ fontSize: 10, color: C.dim2, marginTop: 7 }}>재등록 {t.history.length}회 · 최근 {t.history[t.history.length - 1].at}</div>}
+      </div>
+    );
+  };
+
   return (
     <Modal title={member.id ? "회원 정보 수정" : "새 회원 등록"} onClose={onClose}>
-      <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13 }}>
-        회원번호 <b style={{ color: C.gold, fontFamily: DISP, letterSpacing: 1 }}>{previewNo}</b> {member.id ? "" : "(자동 발급)"}
-      </div>
+      <Field label="회원번호">
+        <input style={{ ...inp, fontFamily: DISP, letterSpacing: 1, color: C.gold, fontWeight: 700 }} value={f.no || ""} onChange={(e) => set("no", e.target.value)} placeholder="예: 26-001" />
+        <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>
+          {member.id ? "필요하면 직접 수정할 수 있어요." : "자동 발급된 번호예요. 그대로 두거나 직접 바꿔도 됩니다."}
+        </div>
+      </Field>
       <Field label="이름"><input style={inp} value={f.name} onChange={(e) => set("name", e.target.value)} /></Field>
       <Field label="연락처"><input style={inp} value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="010-0000-0000" /></Field>
+      <Field label="구분">
+        <select style={inp} value={f.memberType || "내부 회원"} onChange={(e) => set("memberType", e.target.value)}>{MEMBER_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+        <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>내부 = 정규수업 수련자 · 외부 = 팀 활동만 하는 회원</div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 13, color: C.text, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!f.instructor} onChange={(e) => set("instructor", e.target.checked)} style={{ width: 16, height: 16, accentColor: C.gold }} /> 지도진 (이름 앞에 ★ 표시)
+        </label>
+      </Field>
       <Field label="수업 등록 (복수 선택 가능)">
         <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>정규반</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>{SESSIONS.map((s) => <Chip key={s} on={has(s)} color={C.gold} onClick={() => toggle(s)}>{s}</Chip>)}</div>
         <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>전문팀</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{TEAMS.map((t) => <Chip key={t} on={has(t)} color={tColor(t)} onClick={() => toggle(t)}>{t}</Chip>)}</div>
       </Field>
+      {(f.enrollments || []).length > 0 && (
+        <Field label="등록 기간 (각 수업별로 따로 지정)">
+          {(f.enrollments || []).map((k) => <TermCard key={k} k={k} />)}
+        </Field>
+      )}
       <Field label="상태"><select style={inp} value={f.status} onChange={(e) => set("status", e.target.value)}>{STATUSES.map((s) => <option key={s}>{s}</option>)}</select></Field>
-      <Field label="등록일"><input type="date" style={inp} value={f.joinDate} onChange={(e) => set("joinDate", e.target.value)} /></Field>
+      <Field label="회원 가입일"><input type="date" style={inp} value={f.joinDate} onChange={(e) => set("joinDate", e.target.value)} /></Field>
       <button disabled={!f.name.trim() || !tail4(f.phone)} onClick={() => onSave(f)} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8, opacity: f.name.trim() && tail4(f.phone) ? 1 : 0.4 }}><Check size={16} /> 저장</button>
     </Modal>
   );
@@ -731,6 +1188,8 @@ function ClassForm({ cls, names, isEvent, onSave, onClose }) {
 
 function ReserveAdmin({ data, persist }) {
   const [base, setBase] = useState(new Date().toISOString().slice(0, 10));
+  const [monthBase, setMonthBase] = useState(new Date().toISOString().slice(0, 10));
+  const [selected, setSelected] = useState(null);
   const [copied, setCopied] = useState(false);
   const week = weekDates(base);
   const items = data.classes.map((c) => ({ c, date: classDateInWeek(c, week) })).filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date));
@@ -741,28 +1200,42 @@ function ReserveAdmin({ data, persist }) {
   const uniq = [...new Set(absent)];
   const draft = uniq.map((n) => `${n} 회원님, 이번 주 수련에서 못 뵈었네요! 다음 시간엔 매트 위에서 같이 땀 흘려요. 가온은 늘 그 자리에 있습니다 💪`).join("\n\n");
 
+  const renderPanel = (c, date) => {
+    const dow = dowOf(date);
+    const members = (data.reservations[date]?.[c.id] || []).map((id) => data.members.find((m) => m.id === id)).filter(Boolean);
+    return (
+      <Panel key={`${c.id}-${date}`} title={`${DAYS[dow]} ${date.slice(5)} · ${c.label}`} sub={`${(c.targets || []).join(", ")} · ${c.time} · 신청 ${members.length}명`} dot={mainColor(c.targets)}>
+        {members.length === 0 ? <Empty>신청자가 없습니다.</Empty> : members.map((m) => {
+          const st = data.attendance[date]?.[m.id];
+          return (
+            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
+              <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
+              <span style={{ fontWeight: 700, flex: 1 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
+              <button onClick={() => mark(date, m.id, "출석")} style={{ ...pill, background: st === "출석" ? "#2e7d52" : "transparent", color: st === "출석" ? "#fff" : C.dim, borderColor: st === "출석" ? "#2e7d52" : C.line }}>출석</button>
+              <button onClick={() => mark(date, m.id, "결석")} style={{ ...pill, background: st === "결석" ? "#a23b3b" : "transparent", color: st === "결석" ? "#fff" : C.dim, borderColor: st === "결석" ? "#a23b3b" : C.line }}>결석</button>
+            </div>
+          );
+        })}
+      </Panel>
+    );
+  };
+  const dayItems = selected ? classesOnDate(data.classes, selected) : [];
+
   return (
     <div>
+      <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{}} selected={selected} onSelect={setSelected} />
+
+      {selected && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginBottom: 10 }}>{selected.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(selected)]}) 신청 현황</div>
+          {dayItems.length === 0 ? <Empty>이 날은 수업이 없습니다.</Empty> : dayItems.map((c) => renderPanel(c, selected))}
+        </div>
+      )}
+
+      <div style={{ height: 1, background: C.line, margin: "18px 0 16px" }} />
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>주간 전체 보기</div>
       <WeekNav base={base} setBase={setBase} week={week} />
-      {items.length === 0 ? <Empty>이번 주에 열리는 수업이 없습니다.</Empty> : items.map(({ c, date }) => {
-        const dow = dowOf(date);
-        const members = (data.reservations[date]?.[c.id] || []).map((id) => data.members.find((m) => m.id === id)).filter(Boolean);
-        return (
-          <Panel key={`${c.id}-${date}`} title={`${DAYS[dow]} ${date.slice(5)} · ${c.label}`} sub={`${(c.targets || []).join(", ")} · ${c.time}`} dot={mainColor(c.targets)}>
-            {members.length === 0 ? <Empty>예약자가 없습니다.</Empty> : members.map((m) => {
-              const st = data.attendance[date]?.[m.id];
-              return (
-                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
-                  <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
-                  <span style={{ fontWeight: 700, flex: 1 }}>{m.name}</span>
-                  <button onClick={() => mark(date, m.id, "출석")} style={{ ...pill, background: st === "출석" ? "#2e7d52" : "transparent", color: st === "출석" ? "#fff" : C.dim, borderColor: st === "출석" ? "#2e7d52" : C.line }}>출석</button>
-                  <button onClick={() => mark(date, m.id, "결석")} style={{ ...pill, background: st === "결석" ? "#a23b3b" : "transparent", color: st === "결석" ? "#fff" : C.dim, borderColor: st === "결석" ? "#a23b3b" : C.line }}>결석</button>
-                </div>
-              );
-            })}
-          </Panel>
-        );
-      })}
+      {items.length === 0 ? <Empty>이번 주에 열리는 수업이 없습니다.</Empty> : items.map(({ c, date }) => renderPanel(c, date))}
       {uniq.length > 0 && (
         <Panel title="결석자 카카오톡 초안">
           <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.6, color: "#dadae0", margin: 0, fontFamily: FONT }}>{draft}</pre>
@@ -811,44 +1284,300 @@ function NoticeAdmin({ data, persist }) {
   );
 }
 
-// ── 관리자 계정 (최고관리자 전용) ──
+// ── 회원 개별 상품권 (발급/사용완료/회수) ──
+function MemberVoucherModal({ data, persist, member, onClose }) {
+  const templates = data.voucherTemplates || [];
+  const [tab, setTab] = useState("list"); // list | issue
+  const [tplId, setTplId] = useState(templates[0]?.id || 0);
+  const [custom, setCustom] = useState({ name: "", desc: "", days: 30 });
+  const [useCustom, setUseCustom] = useState(templates.length === 0);
+  const vouchers = member.vouchers || [];
+
+  const upd = (members) => persist({ ...data, members });
+  const issue = () => {
+    const tpl = templates.find((t) => t.id === Number(tplId));
+    const name = useCustom ? custom.name.trim() : tpl?.name;
+    if (!name) return alert("상품권을 선택하거나 명칭을 입력해 주세요.");
+    const desc = useCustom ? custom.desc : tpl?.desc || "";
+    const days = useCustom ? custom.days : tpl?.days;
+    const v = { id: Date.now(), name, desc, expiry: expiryFromDays(days), issuedAt: todayStr(), usedAt: null };
+    upd(data.members.map((m) => m.id === member.id ? { ...m, vouchers: [...(m.vouchers || []), v] } : m));
+    setTab("list");
+  };
+  const markUsed = (vid) => upd(data.members.map((m) => m.id === member.id ? { ...m, vouchers: m.vouchers.map((v) => v.id === vid ? { ...v, usedAt: todayStr() } : v) } : m));
+  const revoke = (vid) => { if (confirm("이 상품권을 회수(삭제)할까요?")) upd(data.members.map((m) => m.id === member.id ? { ...m, vouchers: m.vouchers.filter((v) => v.id !== vid) } : m)); };
+
+  return (
+    <Modal title={`${member.name} · 상품권`} onClose={onClose}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {[["list", `보유 ${vouchers.length}`], ["issue", "발급"]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} style={{ flex: 1, padding: 10, borderRadius: 10, border: `1px solid ${tab === k ? "transparent" : C.line}`, background: tab === k ? C.goldGrad : "transparent", color: tab === k ? "#1a1305" : C.dim, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{l}</button>
+        ))}
+      </div>
+
+      {tab === "list" ? (
+        vouchers.length === 0 ? <Empty>발급된 상품권이 없습니다.</Empty> : vouchers.slice().reverse().map((v) => {
+          const st = voucherState(v);
+          return (
+            <div key={v.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 14px", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <Ticket size={15} color={C.gold} />
+                <span style={{ fontWeight: 700 }}>{v.name}</span>
+                <span style={{ marginLeft: "auto", fontSize: 10, color: "#0b0b0e", background: voucherColor(st), borderRadius: 5, padding: "2px 7px", fontWeight: 700 }}>{st}</span>
+              </div>
+              {v.desc && <div style={{ fontSize: 12, color: C.dim, marginTop: 6, lineHeight: 1.5 }}>{v.desc}</div>}
+              <div style={{ fontSize: 11, color: C.dim2, marginTop: 6, fontFamily: DISP }}>발급 {v.issuedAt}{v.expiry ? ` · 유효 ~${v.expiry}` : " · 무기한"}{v.usedAt ? ` · 사용 ${v.usedAt}` : ""}</div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                {st === "사용가능" && <button onClick={() => markUsed(v.id)} style={{ ...pill, flex: 1, justifyContent: "center", padding: "8px 0", background: "#2e7d52", color: "#fff", border: "none", fontWeight: 700 }}>사용완료 처리</button>}
+                <button onClick={() => revoke(v.id)} style={{ ...pill, padding: "8px 14px", color: C.dim, borderColor: C.line }}>회수</button>
+              </div>
+            </div>
+          );
+        })
+      ) : (
+        <>
+          {templates.length > 0 && (
+            <Field label="상품권 종류">
+              <select style={{ ...inp, opacity: useCustom ? 0.4 : 1 }} value={tplId} disabled={useCustom} onChange={(e) => setTplId(e.target.value)}>
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 13, color: C.text, cursor: "pointer" }}>
+                <input type="checkbox" checked={useCustom} onChange={(e) => setUseCustom(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.gold }} /> 종류 없이 직접 입력
+              </label>
+            </Field>
+          )}
+          {useCustom && (
+            <>
+              <Field label="명칭"><input style={inp} value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} placeholder="예: 6월 행사 할인권" /></Field>
+              <Field label="내용·사용방법"><textarea style={{ ...inp, minHeight: 70, resize: "vertical" }} value={custom.desc} onChange={(e) => setCustom({ ...custom, desc: e.target.value })} /></Field>
+              <Field label="유효기간 (일)"><input style={inp} type="number" value={custom.days} onChange={(e) => setCustom({ ...custom, days: e.target.value })} placeholder="비우면 무기한" /></Field>
+            </>
+          )}
+          <button onClick={issue} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8 }}><Ticket size={16} /> 발급</button>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+// ── 설정 (팀 훈련 요일) ──
+function SettingsAdmin({ data, persist }) {
+  const td = data.teamDays || DEFAULT_TEAM_DAYS;
+  const setDay = (team, dow) => persist({ ...data, teamDays: { ...td, [team]: Number(dow) } });
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: C.dim, marginBottom: 14, lineHeight: 1.6 }}>전문팀 훈련 요일을 설정합니다. 팀 수강권의 만료일은 <b style={{ color: C.gold }}>매월 마지막 훈련 요일</b>로 자동 계산됩니다.</div>
+      <Panel title="전문팀 훈련 요일">
+        {TEAMS.map((t) => (
+          <div key={t} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: tColor(t), borderRadius: 5, padding: "3px 8px" }}>{t}</span>
+            <select style={{ ...inp, marginLeft: "auto", width: 110 }} value={td[t]} onChange={(e) => setDay(t, e.target.value)}>
+              {DAYS.map((d, i) => <option key={i} value={i}>{d}요일</option>)}
+            </select>
+          </div>
+        ))}
+      </Panel>
+      <div style={{ fontSize: 11, color: C.dim2, marginTop: 12, lineHeight: 1.6 }}>예: 시범단을 금요일로 두면 6월 만료일은 마지막 금요일(6/26)이 됩니다. 회원 등록 화면에서 팀 수강권 만료일이 이 요일을 기준으로 계산됩니다.</div>
+    </div>
+  );
+}
+
+// ── 상품권 관리 (템플릿 + 단체 발급) ──
+function VouchersAdmin({ data, persist }) {
+  const [tEdit, setTEdit] = useState(null);   // 템플릿 편집
+  const [issue, setIssue] = useState(null);   // 발급 모달 {tpl}
+  const templates = data.voucherTemplates || [];
+
+  const saveTpl = (t) => {
+    let next;
+    if (t.id) next = { ...data, voucherTemplates: templates.map((x) => x.id === t.id ? t : x) };
+    else next = { ...data, voucherTemplates: [...templates, { ...t, id: Math.max(0, ...templates.map((x) => x.id)) + 1 }] };
+    persist(next); setTEdit(null);
+  };
+  const removeTpl = (id) => { if (confirm("이 상품권 종류를 삭제할까요? (이미 발급된 상품권은 그대로 유지됩니다)")) persist({ ...data, voucherTemplates: templates.filter((x) => x.id !== id) }); };
+
+  // 단체 발급
+  const doIssue = (tpl, memberIds, custom) => {
+    const name = custom?.name || tpl?.name;
+    const desc = custom?.desc || tpl?.desc || "";
+    const days = custom ? custom.days : tpl?.days;
+    const expiry = expiryFromDays(days);
+    const stamp = Date.now();
+    const next = {
+      ...data, members: data.members.map((m) => memberIds.includes(m.id)
+        ? { ...m, vouchers: [...(m.vouchers || []), { id: stamp + m.id, name, desc, expiry, issuedAt: todayStr(), usedAt: null }] }
+        : m)
+    };
+    persist(next); setIssue(null);
+    alert(`${memberIds.length}명에게 '${name}' 상품권을 발급했습니다.`);
+  };
+
+  // 전체 발급 현황
+  const allIssued = [];
+  data.members.forEach((m) => (m.vouchers || []).forEach((v) => allIssued.push({ m, v })));
+  allIssued.sort((a, b) => (b.v.issuedAt || "").localeCompare(a.v.issuedAt || ""));
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: C.dim, marginBottom: 14, lineHeight: 1.6 }}>상품권·할인권 종류를 만들어 두고 회원에게 발급합니다. 회원 명단의 각 회원에서 개별 발급도 가능합니다.</div>
+
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 14, fontWeight: 800 }}>상품권 종류</span>
+        <button onClick={() => setTEdit({ name: "", desc: "", days: 30 })} style={{ ...btnGold, marginLeft: "auto", padding: "8px 13px" }}><Plus size={15} /> 종류 추가</button>
+      </div>
+      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden", marginBottom: 24 }}>
+        {templates.length === 0 ? <Empty>상품권 종류가 없습니다.</Empty> : templates.map((t) => (
+          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: `1px solid ${C.line}` }}>
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: "#181206", border: `1px solid ${C.gold}`, color: C.gold, display: "flex", alignItems: "center", justifyContent: "center" }}><Ticket size={17} /></div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700 }}>{t.name}</div>
+              <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>{t.desc || "—"} · 유효 {t.days ? `${t.days}일` : "무기한"}</div>
+            </div>
+            <button onClick={() => setIssue({ tpl: t })} style={{ ...pill, padding: "7px 12px", background: C.goldGrad, color: "#1a1305", border: "none", fontWeight: 700 }}>발급</button>
+            <button onClick={() => setTEdit(t)} style={iconBtn}><Pencil size={15} /></button>
+            <button onClick={() => removeTpl(t.id)} style={iconBtn}><Trash2 size={15} /></button>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={() => setIssue({ tpl: null })} style={{ ...btnGold, width: "100%", justifyContent: "center", marginBottom: 24 }}><Ticket size={16} /> 직접 입력해 발급 (종류 없이)</button>
+
+      <span style={{ fontSize: 14, fontWeight: 800 }}>발급 현황 · {allIssued.length}건</span>
+      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden", marginTop: 10 }}>
+        {allIssued.length === 0 ? <Empty>발급된 상품권이 없습니다.</Empty> : allIssued.map(({ m, v }) => {
+          const st = voucherState(v);
+          return (
+            <div key={`${m.id}-${v.id}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <span style={{ fontWeight: 700 }}>{v.name}</span>
+                  <span style={{ fontSize: 10, color: "#0b0b0e", background: voucherColor(st), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{st}</span>
+                </div>
+                <div style={{ fontSize: 11, color: C.dim2, marginTop: 3, fontFamily: DISP }}>{m.name} {m.no} · 발급 {v.issuedAt}{v.expiry ? ` · ~${v.expiry}` : ""}</div>
+              </div>
+              {st === "사용가능"
+                ? <button onClick={() => { if (confirm(`${m.name} 회원의 '${v.name}'을 사용완료 처리할까요?`)) persist({ ...data, members: data.members.map((x) => x.id === m.id ? { ...x, vouchers: x.vouchers.map((vv) => vv.id === v.id ? { ...vv, usedAt: todayStr() } : vv) } : x) }); }} style={{ ...pill, padding: "7px 12px", background: "#2e7d52", color: "#fff", border: "none", fontWeight: 700 }}>사용완료</button>
+                : <button onClick={() => { if (confirm("이 상품권 발급을 취소(회수)할까요?")) persist({ ...data, members: data.members.map((x) => x.id === m.id ? { ...x, vouchers: x.vouchers.filter((vv) => vv.id !== v.id) } : x) }); }} style={iconBtn}><Trash2 size={15} /></button>}
+            </div>
+          );
+        })}
+      </div>
+
+      {tEdit && (
+        <Modal title={tEdit.id ? "상품권 종류 수정" : "상품권 종류 추가"} onClose={() => setTEdit(null)}>
+          <Field label="명칭"><input style={inp} value={tEdit.name} onChange={(e) => setTEdit({ ...tEdit, name: e.target.value })} placeholder="예: 수련비 1만원 할인권" /></Field>
+          <Field label="내용·사용방법"><textarea style={{ ...inp, minHeight: 80, resize: "vertical" }} value={tEdit.desc} onChange={(e) => setTEdit({ ...tEdit, desc: e.target.value })} placeholder="예: 다음 달 수련비에서 1만원 할인" /></Field>
+          <Field label="유효기간 (일)"><input style={inp} type="number" value={tEdit.days} onChange={(e) => setTEdit({ ...tEdit, days: e.target.value })} placeholder="비우면 무기한" /><div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>발급일로부터 며칠간 유효한지. 비우면 무기한.</div></Field>
+          <button disabled={!tEdit.name.trim()} onClick={() => saveTpl({ ...tEdit, days: tEdit.days ? Number(tEdit.days) : 0 })} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8, opacity: tEdit.name.trim() ? 1 : 0.4 }}><Check size={16} /> 저장</button>
+        </Modal>
+      )}
+      {issue && <VoucherIssueModal data={data} tpl={issue.tpl} onIssue={doIssue} onClose={() => setIssue(null)} />}
+    </div>
+  );
+}
+
+// ── 상품권 발급 모달 (여러 명 선택) ──
+function VoucherIssueModal({ data, tpl, onIssue, onClose }) {
+  const [sel, setSel] = useState([]);
+  const [q, setQ] = useState("");
+  const [custom, setCustom] = useState(tpl ? null : { name: "", desc: "", days: 30 });
+  const list = data.members.filter((m) => m.status !== "탈퇴").filter((m) => m.name.includes(q) || m.no.includes(q));
+  const toggle = (id) => setSel((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
+  const ok = sel.length > 0 && (tpl || (custom && custom.name.trim()));
+  return (
+    <Modal title={tpl ? `'${tpl.name}' 발급` : "상품권 직접 발급"} onClose={onClose}>
+      {!tpl && custom && (
+        <>
+          <Field label="명칭"><input style={inp} value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} placeholder="예: 6월 행사 특별 할인권" /></Field>
+          <Field label="내용·사용방법"><textarea style={{ ...inp, minHeight: 70, resize: "vertical" }} value={custom.desc} onChange={(e) => setCustom({ ...custom, desc: e.target.value })} /></Field>
+          <Field label="유효기간 (일)"><input style={inp} type="number" value={custom.days} onChange={(e) => setCustom({ ...custom, days: e.target.value })} placeholder="비우면 무기한" /></Field>
+        </>
+      )}
+      <Field label={`받을 회원 선택 · ${sel.length}명`}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "0 12px", marginBottom: 10 }}>
+          <Search size={15} color={C.dim} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·회원번호" style={{ flex: 1, background: "transparent", border: "none", color: C.text, padding: "10px 0", outline: "none", fontSize: 14, fontFamily: FONT }} />
+        </div>
+        <div style={{ maxHeight: 240, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 10 }}>
+          {list.map((m) => {
+            const on = sel.includes(m.id);
+            return (
+              <button key={m.id} onClick={() => toggle(m.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "11px 13px", background: on ? "#181206" : "transparent", border: "none", borderBottom: `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}>
+                <div style={{ width: 18, height: 18, borderRadius: 5, border: `1px solid ${on ? C.gold : C.line}`, background: on ? C.gold : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{on && <Check size={13} color="#1a1305" />}</div>
+                <span style={{ fontWeight: 700, color: C.text }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
+                <span style={{ fontSize: 11, color: C.dim2, fontFamily: DISP }}>{m.no}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+      <button disabled={!ok} onClick={() => onIssue(tpl, sel, custom)} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8, opacity: ok ? 1 : 0.4 }}><Ticket size={16} /> {sel.length}명에게 발급</button>
+    </Modal>
+  );
+}
+
+// ── 관리자 계정 (관장·임원 전용) ──
 function AdminAccounts({ data, persist, me }) {
   const [edit, setEdit] = useState(null);
+  const isProtected = (a) => a.id === 1; // 최고관리자(맨 처음 관장 계정) 보호
   const save = (a) => {
     if (data.admins.some((x) => x.loginId === a.loginId.trim() && x.id !== a.id)) { alert("이미 사용 중인 아이디입니다."); return; }
+    const fixed = isProtected(a) ? { ...a, role: "super", status: "활동중" } : a;
     let next;
-    if (a.id) next = { ...data, admins: data.admins.map((x) => x.id === a.id ? a : x) };
-    else next = { ...data, admins: [...data.admins, { ...a, id: Math.max(0, ...data.admins.map((x) => x.id)) + 1, role: "staff" }] };
+    if (a.id) next = { ...data, admins: data.admins.map((x) => x.id === a.id ? fixed : x) };
+    else next = { ...data, admins: [...data.admins, { ...a, id: Math.max(0, ...data.admins.map((x) => x.id)) + 1, role: a.role || "staff", status: a.status || "활동중" }] };
     persist(next); setEdit(null);
   };
   const remove = (a) => {
-    if (a.role === "super") return alert("최고관리자 계정은 삭제할 수 없습니다.");
+    if (isProtected(a)) return alert("최고관리자 계정은 삭제할 수 없습니다.");
     if (confirm(`${a.name} 계정을 삭제할까요?`)) persist({ ...data, admins: data.admins.filter((x) => x.id !== a.id) });
   };
+  const sbadge = (s) => ({ 활동중: C.gold, 휴식중: "#8a8a92", 정지: "#c89042", 탈퇴: "#56565e" }[s] || C.dim);
   return (
     <div>
-      <div style={{ fontSize: 12, color: C.dim, marginBottom: 14, lineHeight: 1.6 }}>사범님께 아이디·비밀번호를 배정하면 관리자 모드로 로그인해 전체를 확인·관리할 수 있습니다.</div>
-      <button onClick={() => setEdit({ name: "", loginId: "", pw: "" })} style={{ ...btnGold, marginBottom: 16 }}><Plus size={16} /> 사범 계정 추가</button>
+      <div style={{ fontSize: 12, color: C.dim, marginBottom: 14, lineHeight: 1.6 }}>관리자 계정을 만들고 등급(관장·임원 / 사범)과 상태를 지정합니다. <b style={{ color: C.gold }}>관장·임원</b>만 이 관리자 탭을 볼 수 있고, <b>사범</b>은 볼 수 없습니다. 정지·탈퇴 상태는 로그인할 수 없습니다.</div>
+      <button onClick={() => setEdit({ name: "", loginId: "", pw: "", role: "staff", status: "활동중" })} style={{ ...btnGold, marginBottom: 16 }}><Plus size={16} /> 관리자 계정 추가</button>
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
         {data.admins.map((a) => (
           <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderBottom: `1px solid ${C.line}` }}>
             <div style={{ width: 40, height: 40, borderRadius: 11, background: a.role === "super" ? C.goldGrad : C.card2, color: a.role === "super" ? "#1a1305" : C.gold, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {a.role === "super" ? <Shield size={18} /> : <User size={18} />}
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700 }}>{a.name} {a.role === "super" && <span style={{ fontSize: 10, color: C.gold }}>최고관리자</span>}</div>
-              <div style={{ fontSize: 12, color: C.dim, fontFamily: DISP }}>ID {a.loginId} · PW {a.pw}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                {a.name}
+                <span style={{ fontSize: 10, color: a.role === "super" ? C.gold : C.dim, border: `1px solid ${a.role === "super" ? C.gold : C.line}`, borderRadius: 4, padding: "1px 6px", fontWeight: 700 }}>{roleLabel(a.role)}</span>
+                <span style={{ fontSize: 10, color: "#0b0b0e", background: sbadge(a.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{a.status}</span>
+                {isProtected(a) && <span style={{ fontSize: 10, color: C.gold }}>최고관리자</span>}
+              </div>
+              <div style={{ fontSize: 12, color: C.dim, fontFamily: DISP, marginTop: 3 }}>ID {a.loginId} · PW {a.pw}{a.memberNo ? ` · 회원 ${a.memberNo}` : ""}</div>
             </div>
             <button onClick={() => setEdit(a)} style={iconBtn}><Pencil size={15} /></button>
-            {a.role !== "super" && <button onClick={() => remove(a)} style={iconBtn}><Trash2 size={15} /></button>}
+            {!isProtected(a) && <button onClick={() => remove(a)} style={iconBtn}><Trash2 size={15} /></button>}
           </div>
         ))}
       </div>
       {edit && (
-        <Modal title={edit.role === "super" ? "최고관리자 정보 수정" : edit.id ? "사범 계정 수정" : "사범 계정 추가"} onClose={() => setEdit(null)}>
+        <Modal title={isProtected(edit) ? "최고관리자 정보 수정" : edit.id ? "관리자 계정 수정" : "관리자 계정 추가"} onClose={() => setEdit(null)}>
           <Field label="이름"><input style={inp} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="예: 이은지 사범" /></Field>
           <Field label="아이디"><input style={inp} value={edit.loginId} onChange={(e) => setEdit({ ...edit, loginId: e.target.value })} placeholder="영문 아이디" /></Field>
           <Field label="비밀번호"><input style={inp} value={edit.pw} onChange={(e) => setEdit({ ...edit, pw: e.target.value })} placeholder="비밀번호" /></Field>
+          <Field label="등급">
+            <select style={{ ...inp, opacity: isProtected(edit) ? 0.5 : 1 }} value={edit.role || "staff"} disabled={isProtected(edit)} onChange={(e) => setEdit({ ...edit, role: e.target.value })}>
+              {ADMIN_ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>관장·임원만 관리자 탭(계정 관리)을 볼 수 있습니다.</div>
+          </Field>
+          <Field label="상태">
+            <select style={{ ...inp, opacity: isProtected(edit) ? 0.5 : 1 }} value={edit.status || "활동중"} disabled={isProtected(edit)} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
+              {ADMIN_STATUSES.map((s) => <option key={s}>{s}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>활동중·휴식중은 사용 가능 / 정지·탈퇴는 로그인 불가{isProtected(edit) ? " · 최고관리자는 항상 활동중" : ""}</div>
+          </Field>
+          <Field label="연결 회원번호 (선택)">
+            <input style={{ ...inp, fontFamily: DISP }} value={edit.memberNo || ""} onChange={(e) => setEdit({ ...edit, memberNo: e.target.value })} placeholder="예: 26-002" />
+            <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>이 관리자가 수련자(회원)이기도 하면 본인 회원번호를 적어 주세요. 관리자 모드에서 '수련자 화면 보기'로 본인 수업·기록을 볼 수 있습니다.</div>
+          </Field>
           <button disabled={!edit.name.trim() || !edit.loginId.trim() || !edit.pw.trim()} onClick={() => save(edit)}
             style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8, opacity: edit.name.trim() && edit.loginId.trim() && edit.pw.trim() ? 1 : 0.4 }}><Check size={16} /> 저장</button>
         </Modal>
@@ -858,16 +1587,22 @@ function AdminAccounts({ data, persist, me }) {
 }
 
 // ═══════════ 수련자 ═══════════
-function Member({ data, persist, me, onLogout }) {
+function Member({ data, persist, me, onLogout, asAdmin }) {
   const [tab, setTab] = useState("home");
   const isOut = me.status === "탈퇴", isPaused = me.status === "정지중";
   const tabs = isOut ? [["home", "공지", Megaphone]]
     : [["home", "홈", User], ["reserve", "수업", CalendarCheck], ["events", "이벤트", Trophy], ["mine", "내 기록", BookOpen]];
   const total = trainTotal(data, me.id), month = trainMonth(data, me.id);
+  const star = me.instructor ? "★ " : "";
 
   return (
     <>
-      <TopBar role="수련자" name={`${me.name} · ${me.no}`} onLogout={onLogout} />
+      {asAdmin && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#241f12", border: `1px solid #5a4a22`, borderRadius: 12, padding: "11px 14px", margin: "16px 0 0", fontSize: 13, color: "#dcc89a" }}>
+          <Shield size={15} /> 관리자가 보는 수련자 화면입니다 · {star}{me.name}
+        </div>
+      )}
+      <TopBar role={asAdmin ? "지도진" : "수련자"} name={`${star}${me.name} · ${me.no}`} onLogout={onLogout} logoutLabel={asAdmin ? "관리자로" : "로그아웃"} />
       <TabBar tabs={tabs} tab={tab} setTab={setTab} />
       <NoticeMarquee notices={data.notices} />
       {tab === "home" && (
@@ -916,6 +1651,8 @@ function Member({ data, persist, me, onLogout }) {
 
 function ReserveMember({ data, persist, me, locked, kind }) {
   const [base, setBase] = useState(new Date().toISOString().slice(0, 10));
+  const [monthBase, setMonthBase] = useState(new Date().toISOString().slice(0, 10));
+  const [selected, setSelected] = useState(null);
   const [applyFor, setApplyFor] = useState(null);
   const week = weekDates(base);
   const items = data.classes.filter((c) => canTake(me, c) && (c.kind || "수업") === kind).map((c) => ({ c, date: classDateInWeek(c, week) })).filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date));
@@ -940,35 +1677,49 @@ function ReserveMember({ data, persist, me, locked, kind }) {
     const subC = { ...(data.submissions[c.id] || {}) }; delete subC[me.id];
     persist({ ...data, reservations: { ...data.reservations, [date]: dayRes }, submissions: { ...data.submissions, [c.id]: subC } });
   };
+  const renderCard = (c, date) => {
+    const dow = dowOf(date);
+    const arr = data.reservations[date]?.[c.id] || [];
+    const isApply = c.kind === "행사" && (c.fields || []).length > 0;
+    const on = isApply ? applied(c) : arr.includes(me.id);
+    const col = mainColor(c.targets);
+    return (
+      <div key={`${c.id}-${date}`} style={{ display: "flex", alignItems: "center", gap: 12, background: C.card, border: `1px solid ${on ? "#2e7d52" : C.line}`, borderRadius: 16, padding: "15px 16px", marginBottom: 10 }}>
+        <DayBadge day={dow} date={date} color={col} big />
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700 }}>{c.label}</span>
+            {(c.targets || []).map((t) => <span key={t} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(t), borderRadius: 5, padding: "2px 6px" }}>{t}</span>)}
+            {isApply && <span style={{ fontSize: 10, fontWeight: 700, color: C.gold, border: `1px solid ${C.gold}`, borderRadius: 5, padding: "1px 6px" }}>신청서</span>}
+          </div>
+          <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>{DAYS[dow]}요일 {c.time} · 현재 {arr.length}명 {isApply ? "신청" : "예약"}</div>
+          {c.desc && <div style={{ fontSize: 12, color: C.dim2, marginTop: 4, lineHeight: 1.5 }}>{c.desc}</div>}
+        </div>
+        <button onClick={() => { if (locked) return; if (isApply) { on ? cancelApply(c, date) : setApplyFor({ c, date }); } else toggle(date, c.id); }}
+          disabled={locked} style={{ ...pill, opacity: locked ? 0.4 : 1, padding: "9px 18px", background: on ? "#2e7d52" : "transparent", color: on ? "#fff" : C.gold, borderColor: on ? "#2e7d52" : "#5a4a22" }}>
+          {on ? (isApply ? "신청됨" : "예약됨") : (isApply ? "신청" : "예약")}
+        </button>
+      </div>
+    );
+  };
+  const dayItems = selected ? classesOnDate(data.classes, selected, { kind, me }) : [];
   return (
     <div>
       {locked && <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#241f12", border: `1px solid #5a4a22`, borderRadius: 12, padding: "13px 15px", marginBottom: 16, fontSize: 13, color: "#dcc89a" }}><Lock size={16} /> 정지중 상태에서는 조회만 가능합니다. 복귀를 원하시면 도장에 문의해 주세요.</div>}
+
+      <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{ kind, me }} selected={selected} onSelect={setSelected} />
+
+      {selected && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginBottom: 10 }}>{selected.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(selected)]}) {kind === "행사" ? "이벤트" : "수업"}</div>
+          {dayItems.length === 0 ? <Empty>이 날은 {kind === "행사" ? "이벤트가" : "수업이"} 없습니다.</Empty> : dayItems.map((c) => renderCard(c, selected))}
+        </div>
+      )}
+
+      <div style={{ height: 1, background: C.line, margin: "18px 0 16px" }} />
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>주간 전체 보기</div>
       <WeekNav base={base} setBase={setBase} week={week} />
-      {items.length === 0 ? <Empty>이번 주에 신청 가능한 {kind === "행사" ? "이벤트가" : "수업이"} 없습니다.</Empty> : items.map(({ c, date }) => {
-        const dow = dowOf(date);
-        const arr = data.reservations[date]?.[c.id] || [];
-        const isApply = c.kind === "행사" && (c.fields || []).length > 0;
-        const on = isApply ? applied(c) : arr.includes(me.id);
-        const col = mainColor(c.targets);
-        return (
-          <div key={`${c.id}-${date}`} style={{ display: "flex", alignItems: "center", gap: 12, background: C.card, border: `1px solid ${on ? "#2e7d52" : C.line}`, borderRadius: 16, padding: "15px 16px", marginBottom: 10 }}>
-            <DayBadge day={dow} date={date} color={col} big />
-            <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 700 }}>{c.label}</span>
-                {(c.targets || []).map((t) => <span key={t} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(t), borderRadius: 5, padding: "2px 6px" }}>{t}</span>)}
-                {isApply && <span style={{ fontSize: 10, fontWeight: 700, color: C.gold, border: `1px solid ${C.gold}`, borderRadius: 5, padding: "1px 6px" }}>신청서</span>}
-              </div>
-              <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>{DAYS[dow]}요일 {c.time} · 현재 {arr.length}명 {isApply ? "신청" : "예약"}</div>
-              {c.desc && <div style={{ fontSize: 12, color: C.dim2, marginTop: 4, lineHeight: 1.5 }}>{c.desc}</div>}
-            </div>
-            <button onClick={() => { if (locked) return; if (isApply) { on ? cancelApply(c, date) : setApplyFor({ c, date }); } else toggle(date, c.id); }}
-              disabled={locked} style={{ ...pill, opacity: locked ? 0.4 : 1, padding: "9px 18px", background: on ? "#2e7d52" : "transparent", color: on ? "#fff" : C.gold, borderColor: on ? "#2e7d52" : "#5a4a22" }}>
-              {on ? (isApply ? "신청됨" : "예약됨") : (isApply ? "신청" : "예약")}
-            </button>
-          </div>
-        );
-      })}
+      {items.length === 0 ? <Empty>이번 주에 신청 가능한 {kind === "행사" ? "이벤트가" : "수업이"} 없습니다.</Empty> : items.map(({ c, date }) => renderCard(c, date))}
       {applyFor && <ApplyModal event={applyFor.c} onSubmit={(ans) => submitApply(applyFor.c, applyFor.date, ans)} onClose={() => setApplyFor(null)} />}
     </div>
   );
@@ -1003,6 +1754,49 @@ function MineRecord({ data, me }) {
         <Stat label="이번달" value={month} unit="회" />
         <Stat label="경력" value={(me.history || []).length} unit="건" />
       </Grid3>
+
+      {(me.enrollments || []).length > 0 && (
+        <Panel title="내 수강권" sub="등록 수업별 기간">
+          {(me.enrollments || []).map((k) => {
+            const t = me.terms?.[k] || {}; const st = termStatus(t);
+            return (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: tColor(k), borderRadius: 5, padding: "3px 8px" }}>{k}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: C.dim }}>{t.start ? `${t.start} 시작` : "시작일 미설정"}{t.period ? ` · ${t.period}` : ""}</div>
+                  <div style={{ fontSize: 12, color: C.dim2, marginTop: 2 }}>{t.expiry ? `${t.expiry}까지` : "기간 미설정"}</div>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 800, color: st.color }}>{st.label}</span>
+              </div>
+            );
+          })}
+        </Panel>
+      )}
+
+      {(() => {
+        const vs = me.vouchers || [];
+        if (vs.length === 0) return null;
+        const usable = vs.filter((v) => voucherState(v) === "사용가능");
+        return (
+          <Panel title="내 상품권" sub={usable.length > 0 ? `사용 가능 ${usable.length}장 · 도장에서 보여주세요` : "보유 상품권"}>
+            {vs.slice().reverse().map((v) => {
+              const st = voucherState(v);
+              const usable = st === "사용가능";
+              return (
+                <div key={v.id} style={{ border: `1px solid ${usable ? C.gold : C.line}`, borderRadius: 12, padding: "14px 15px", marginBottom: 10, background: usable ? "#181206" : "transparent", opacity: usable ? 1 : 0.65 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Ticket size={16} color={usable ? C.gold : C.dim} />
+                    <span style={{ fontWeight: 700, fontSize: 15 }}>{v.name}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 10, color: "#0b0b0e", background: voucherColor(st), borderRadius: 5, padding: "2px 7px", fontWeight: 700 }}>{st}</span>
+                  </div>
+                  {v.desc && <div style={{ fontSize: 13, color: "#dadae0", marginTop: 7, lineHeight: 1.5 }}>{v.desc}</div>}
+                  <div style={{ fontSize: 11, color: C.dim2, marginTop: 7, fontFamily: DISP }}>{v.expiry ? `유효기간 ~${v.expiry}` : "무기한"}{v.usedAt ? ` · 사용완료 ${v.usedAt}` : ""}</div>
+                </div>
+              );
+            })}
+          </Panel>
+        );
+      })()}
       {(me.history || []).length > 0 && (
         <Panel title="나의 발자취" sub="가온에서 쌓아온 기록">
           {[...me.history].sort((a, b) => a.date.localeCompare(b.date)).map((h, i, arr) => {
@@ -1039,14 +1833,14 @@ function MineRecord({ data, me }) {
 }
 
 // ═══════════ 공통 UI ═══════════
-function TopBar({ role, name, onLogout }) {
+function TopBar({ role, name, onLogout, logoutLabel }) {
   return (
     <header style={{ display: "flex", alignItems: "center", padding: "26px 0 18px", borderBottom: `1px solid ${C.line}` }}>
       <div>
         <img src="/logo-h.png" alt="가온태권도장" style={{ width: 158, height: "auto", display: "block" }} />
         <div style={{ fontSize: 12, color: C.dim, marginTop: 8 }}>{role} · {name}</div>
       </div>
-      <button onClick={onLogout} style={{ ...iconBtn, marginLeft: "auto", width: "auto", padding: "0 13px", gap: 6, fontSize: 13, height: 38 }}><LogOut size={14} /> 로그아웃</button>
+      <button onClick={onLogout} style={{ ...iconBtn, marginLeft: "auto", width: "auto", padding: "0 13px", gap: 6, fontSize: 13, height: 38 }}><LogOut size={14} /> {logoutLabel || "로그아웃"}</button>
     </header>
   );
 }
@@ -1081,6 +1875,41 @@ function WeekNav({ base, setBase, week }) {
       <button onClick={() => shift(-7)} style={iconBtn}><ChevronLeft size={16} /></button>
       <span style={{ fontSize: 14, fontWeight: 700, fontFamily: DISP, letterSpacing: 0.5 }}>{week[0].slice(5)} ~ {week[6].slice(5)}</span>
       <button onClick={() => shift(7)} style={iconBtn}><ChevronRight size={16} /></button>
+    </div>
+  );
+}
+function MonthCalendar({ monthBase, setMonthBase, classes, opt, selected, onSelect }) {
+  const cells = monthMatrix(monthBase);
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, padding: 14, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <button onClick={() => setMonthBase(shiftMonth(monthBase, -1))} style={iconBtn}><ChevronLeft size={18} /></button>
+        <span style={{ fontWeight: 700, color: C.gold, fontFamily: DISP, fontSize: 15, letterSpacing: 0.5 }}>{monthLabel(monthBase)}</span>
+        <button onClick={() => setMonthBase(shiftMonth(monthBase, 1))} style={iconBtn}><ChevronRight size={18} /></button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", textAlign: "center", fontSize: 10, marginBottom: 6 }}>
+        {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} style={{ color: i === 0 ? "#c86a5a" : i === 6 ? "#6a8fd0" : C.dim2 }}>{d}</div>)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
+        {cells.map((ds, i) => {
+          if (!ds) return <div key={i} />;
+          const cs = classesOnDate(classes, ds, opt);
+          const sel = ds === selected;
+          const dw = dowOf(ds);
+          return (
+            <button key={i} onClick={() => onSelect(sel ? null : ds)}
+              style={{ padding: "5px 0 3px", borderRadius: 9, border: ds === today && !sel ? `1px solid ${C.gold}` : "1px solid transparent", cursor: "pointer",
+                background: sel ? C.goldGrad : "transparent", color: sel ? "#1a1305" : (dw === 0 ? "#c86a5a" : dw === 6 ? "#6a8fd0" : C.text),
+                fontSize: 12, fontWeight: sel ? 800 : 500, fontFamily: DISP }}>
+              {Number(ds.slice(8))}
+              <div style={{ display: "flex", gap: 2, justifyContent: "center", marginTop: 2, height: 4 }}>
+                {cs.slice(0, 4).map((c, j) => <span key={j} style={{ width: 4, height: 4, borderRadius: "50%", background: sel ? "#1a1305" : mainColor(c.targets) }} />)}
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
