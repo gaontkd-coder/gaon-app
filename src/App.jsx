@@ -79,6 +79,17 @@ const isTeam = (t) => TEAMS.includes(t);
 const tColor = (t) => TEAM_COLOR[t] || C.gold;
 const mainColor = (targets) => { const t = (targets || []).find(isTeam); return t ? tColor(t) : C.gold; };
 const canTake = (m, c) => (c.targets || []).some((t) => (m.enrollments || []).includes(t));
+// 회원번호로 회원 찾기 (전체 "26-002" 또는 뒷번호 "002"/"2" 모두 허용)
+function findMemberByNo(members, input) {
+  const v = (input || "").trim();
+  if (!v) return { member: null, count: 0 };
+  let cands = members.filter((m) => m.no === v);
+  if (cands.length === 0) {
+    const tail = v.replace(/\D/g, "");
+    if (tail) { const padded = tail.padStart(3, "0"); cands = members.filter((m) => { const t = (m.no.split("-")[1] || ""); return t === padded || t === tail; }); }
+  }
+  return { member: cands[0] || null, count: cands.length };
+}
 const ym = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
 // 누적 / 월별 수련 횟수 (출석 기준)
@@ -358,9 +369,10 @@ export default function App() {
           onMember={(m) => { setUser(m); setView("member"); }} />}
         {view === "admin" && admin && <Admin data={data} persist={persist} admin={admin}
           onViewMember={() => {
-            const m = data.members.find((x) => x.no === (admin.memberNo || "").trim());
-            if (!m) { alert("이 관리자 계정에 연결된 회원번호가 없습니다.\n관리자 탭에서 본인 계정을 열어 '연결 회원번호'를 입력해 주세요."); return; }
-            setUser(m); setView("member");
+            const r = findMemberByNo(data.members, admin.memberNo);
+            if (!r.member) { alert("이 관리자 계정에 연결된 회원을 찾을 수 없습니다.\n관리자 탭에서 본인 계정을 열어 '연결 회원번호'를 입력해 주세요. (뒷번호만 입력해도 됩니다)"); return; }
+            if (r.count > 1) { alert(`뒷번호 '${admin.memberNo}' 인 회원이 ${r.count}명입니다.\n관리자 설정에서 연도까지 포함한 전체 번호(예: 26-002)로 입력해 주세요.`); return; }
+            setUser(r.member); setView("member");
           }}
           onLogout={() => { setAdmin(null); setView("auth"); }} />}
         {view === "member" && user && <Member data={data} persist={persist}
@@ -454,7 +466,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
     ["reserve", "예약·출석", CalendarCheck],
     ["vouchers", "상품권", Ticket],
     ["notice", "공지", Megaphone],
-    ...(admin.role === "super" ? [["accounts", "관리자", KeyRound], ["settings", "설정", LayoutDashboard]] : []),
+    ...(admin.role === "super" ? [["accounts", "관리자", KeyRound]] : []),
   ];
   const content = (
     <>
@@ -467,7 +479,6 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
       {tab === "vouchers" && <VouchersAdmin data={data} persist={persist} />}
       {tab === "notice" && <NoticeAdmin data={data} persist={persist} />}
       {tab === "accounts" && admin.role === "super" && <AdminAccounts data={data} persist={persist} me={admin} />}
-      {tab === "settings" && admin.role === "super" && <SettingsAdmin data={data} persist={persist} />}
     </>
   );
   if (wide) {
@@ -840,33 +851,39 @@ function MembersAdmin({ data, persist }) {
       </div>
       <div style={{ fontSize: 12, color: C.dim2, marginBottom: 10 }}>{filter} · 총 {list.length}명</div>
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
-        {list.length === 0 ? <Empty>회원이 없습니다.</Empty> : list.map((m) => (
-          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderBottom: `1px solid ${C.line}` }}>
-            <div style={{ fontFamily: DISP, width: 44, textAlign: "center", fontSize: 12, color: C.dim2, fontWeight: 700 }}>{m.no}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}>
-                {m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}
+        {list.length === 0 ? <Empty>회원이 없습니다.</Empty> : list.map((m) => {
+          const actBtn = { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "8px 0", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.dim, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT };
+          return (
+            <div key={m.id} style={{ padding: "14px 15px", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                {m.instructor && <span style={{ color: C.gold }}>★</span>}
+                <span style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</span>
                 <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{m.memberType === "외부 회원" ? "외부" : "내부"}</span>
                 <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(m.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{m.status}</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: "auto", fontFamily: DISP, color: C.gold, fontWeight: 700 }}><Flame size={13} />{trainTotal(data, m.id)}</span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-                {(m.enrollments || []).map((e) => {
-                  const st = termStatus(m.terms?.[e]);
-                  return (
-                    <span key={e} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "2px 6px" }}>
-                      {e}{st.days !== null && <span style={{ fontSize: 9, color: st.color === "#3fa86a" ? "#dfffe9" : "#1a1305", background: st.color, borderRadius: 3, padding: "0 4px" }}>{st.label}</span>}
-                    </span>
-                  );
-                })}
+              <div style={{ fontSize: 11, color: C.dim2, marginTop: 5, fontFamily: DISP, letterSpacing: 0.3 }}>{m.no} · {m.phone}</div>
+              {(m.enrollments || []).length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginTop: 9 }}>
+                  {(m.enrollments || []).map((e) => {
+                    const st = termStatus(m.terms?.[e]);
+                    return (
+                      <span key={e} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "3px 7px" }}>
+                        {e}{st.days !== null && <span style={{ fontSize: 9, color: st.color === "#3fa86a" ? "#dfffe9" : "#1a1305", background: st.color, borderRadius: 3, padding: "0 4px" }}>{st.label}</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6, marginTop: 11 }}>
+                <button onClick={() => setHist(m)} style={actBtn}><Award size={14} /> 경력</button>
+                <button onClick={() => setVouchMember(m)} style={{ ...actBtn, color: C.gold, borderColor: "#5a4a22" }}><Ticket size={14} /> 상품권</button>
+                <button onClick={() => setEdit(m)} style={actBtn}><Pencil size={14} /> 수정</button>
+                <button onClick={() => remove(m.id)} style={actBtn}><Trash2 size={14} /> 삭제</button>
               </div>
             </div>
-            <button onClick={() => setHist(m)} style={iconBtn} title="경력 관리"><Award size={15} /></button>
-            <button onClick={() => setVouchMember(m)} style={iconBtn} title="상품권 발급"><Ticket size={15} /></button>
-            <button onClick={() => setEdit(m)} style={iconBtn}><Pencil size={15} /></button>
-            <button onClick={() => remove(m.id)} style={iconBtn}><Trash2 size={15} /></button>
-          </div>
-        ))}
+          );
+        })}
       </div>
       {edit && <MemberForm member={edit} previewNo={edit.id ? edit.no : nextNo()} teamDays={data.teamDays} onSave={save} onClose={() => setEdit(null)} />}
       {hist && <HistoryManager member={hist} onSave={(mem) => { save(mem); setHist(null); }} onClose={() => setHist(null)} />}
@@ -1026,6 +1043,7 @@ function HistoryManager({ member, onSave, onClose }) {
 function ClassesAdmin({ data, persist, kind }) {
   const [edit, setEdit] = useState(null);
   const [subs, setSubs] = useState(null);
+  const [teamCfg, setTeamCfg] = useState(false);
   const isEvent = kind === "행사";
   const names = isEvent ? EVENT_NAMES : LESSON_NAMES;
   const save = (c) => {
@@ -1076,12 +1094,16 @@ function ClassesAdmin({ data, persist, kind }) {
   const regs = mine.filter((c) => !(c.targets || []).some(isTeam)).sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
   return (
     <div>
-      <button onClick={() => setEdit(newItem)} style={{ ...btnGold, marginBottom: 18 }}><Plus size={16} /> 수업 개설</button>
+      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+        <button onClick={() => setEdit(newItem)} style={btnGold}><Plus size={16} /> 수업 개설</button>
+        <button onClick={() => setTeamCfg(true)} style={{ ...pill, padding: "11px 16px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><CalendarCheck size={15} /> 팀 수업 설정</button>
+      </div>
       <GroupLabel color="#d8693f">전문팀 수업 ({teams.length})</GroupLabel>
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden", marginBottom: 18 }}>{teams.length ? teams.map(card) : <Empty>전문팀 수업이 없습니다.</Empty>}</div>
       <GroupLabel color={C.gold}>정규반 수업 ({regs.length})</GroupLabel>
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>{regs.length ? regs.map(card) : <Empty>정규반 수업이 없습니다.</Empty>}</div>
       {edit && <ClassForm cls={edit} names={names} onSave={save} onClose={() => setEdit(null)} />}
+      {teamCfg && <TeamDaysModal data={data} persist={persist} onClose={() => setTeamCfg(false)} />}
     </div>
   );
 }
@@ -1360,25 +1382,24 @@ function MemberVoucherModal({ data, persist, member, onClose }) {
   );
 }
 
-// ── 설정 (팀 훈련 요일) ──
-function SettingsAdmin({ data, persist }) {
+// ── 팀 수업 설정 (훈련 요일) 모달 ──
+function TeamDaysModal({ data, persist, onClose }) {
   const td = data.teamDays || DEFAULT_TEAM_DAYS;
   const setDay = (team, dow) => persist({ ...data, teamDays: { ...td, [team]: Number(dow) } });
   return (
-    <div>
-      <div style={{ fontSize: 12, color: C.dim, marginBottom: 14, lineHeight: 1.6 }}>전문팀 훈련 요일을 설정합니다. 팀 수강권의 만료일은 <b style={{ color: C.gold }}>매월 마지막 훈련 요일</b>로 자동 계산됩니다.</div>
-      <Panel title="전문팀 훈련 요일">
-        {TEAMS.map((t) => (
-          <div key={t} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: tColor(t), borderRadius: 5, padding: "3px 8px" }}>{t}</span>
-            <select style={{ ...inp, marginLeft: "auto", width: 110 }} value={td[t]} onChange={(e) => setDay(t, e.target.value)}>
-              {DAYS.map((d, i) => <option key={i} value={i}>{d}요일</option>)}
-            </select>
-          </div>
-        ))}
-      </Panel>
-      <div style={{ fontSize: 11, color: C.dim2, marginTop: 12, lineHeight: 1.6 }}>예: 시범단을 금요일로 두면 6월 만료일은 마지막 금요일(6/26)이 됩니다. 회원 등록 화면에서 팀 수강권 만료일이 이 요일을 기준으로 계산됩니다.</div>
-    </div>
+    <Modal title="팀 수업 설정" onClose={onClose}>
+      <div style={{ fontSize: 12, color: C.dim, marginBottom: 16, lineHeight: 1.6 }}>전문팀 훈련 요일을 설정합니다. 팀 수강권의 만료일은 <b style={{ color: C.gold }}>매월 마지막 훈련 요일</b>로 자동 계산됩니다.</div>
+      {TEAMS.map((t) => (
+        <div key={t} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: tColor(t), borderRadius: 5, padding: "3px 8px" }}>{t}</span>
+          <select style={{ ...inp, marginLeft: "auto", width: 120 }} value={td[t]} onChange={(e) => setDay(t, e.target.value)}>
+            {DAYS.map((d, i) => <option key={i} value={i}>{d}요일</option>)}
+          </select>
+        </div>
+      ))}
+      <div style={{ fontSize: 11, color: C.dim2, marginTop: 14, lineHeight: 1.6 }}>예: 시범단을 금요일로 두면 6월 만료일은 마지막 금요일(6/26)이 됩니다.</div>
+      <button onClick={onClose} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 16 }}><Check size={16} /> 완료</button>
+    </Modal>
   );
 }
 
@@ -1575,8 +1596,14 @@ function AdminAccounts({ data, persist, me }) {
             <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>활동중·휴식중은 사용 가능 / 정지·탈퇴는 로그인 불가{isProtected(edit) ? " · 최고관리자는 항상 활동중" : ""}</div>
           </Field>
           <Field label="연결 회원번호 (선택)">
-            <input style={{ ...inp, fontFamily: DISP }} value={edit.memberNo || ""} onChange={(e) => setEdit({ ...edit, memberNo: e.target.value })} placeholder="예: 26-002" />
-            <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>이 관리자가 수련자(회원)이기도 하면 본인 회원번호를 적어 주세요. 관리자 모드에서 '수련자 화면 보기'로 본인 수업·기록을 볼 수 있습니다.</div>
+            <input style={{ ...inp, fontFamily: DISP }} value={edit.memberNo || ""} onChange={(e) => setEdit({ ...edit, memberNo: e.target.value })} placeholder="뒷번호만 입력 (예: 002)" />
+            {(() => {
+              const r = findMemberByNo(data.members, edit.memberNo);
+              if (!edit.memberNo) return <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>이 관리자가 회원이기도 하면 본인 회원번호를 적어 주세요. <b>뒷번호만(예: 002)</b> 입력해도 자동 연결됩니다.</div>;
+              if (!r.member) return <div style={{ fontSize: 11, color: "#e58282", marginTop: 5 }}>해당 번호의 회원을 찾을 수 없습니다.</div>;
+              if (r.count > 1) return <div style={{ fontSize: 11, color: "#e0a86a", marginTop: 5 }}>같은 뒷번호 회원이 {r.count}명입니다. 전체 번호(예: 26-002)로 입력해 주세요.</div>;
+              return <div style={{ fontSize: 11, color: "#7fd6a0", marginTop: 5 }}>연결됨 · {r.member.no} {r.member.name}</div>;
+            })()}
           </Field>
           <button disabled={!edit.name.trim() || !edit.loginId.trim() || !edit.pw.trim()} onClick={() => save(edit)}
             style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8, opacity: edit.name.trim() && edit.loginId.trim() && edit.pw.trim() ? 1 : 0.4 }}><Check size={16} /> 저장</button>
