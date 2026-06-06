@@ -1938,6 +1938,7 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
           {isPaused && (
             <div style={{ background: "#241f12", border: "1px solid #5a4a22", borderRadius: 12, padding: "13px 15px", marginBottom: 16, fontSize: 13, color: "#dcc89a", lineHeight: 1.6 }}>
               현재 정지 상태예요. 수련 기록은 볼 수 있지만 수업·이벤트 신청은 재등록 후 가능합니다. 재등록 문의: 010-8984-3725
+              <button onClick={() => setTab("mine")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", marginTop: 12, padding: "10px 0", background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 10, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><BookOpen size={15} /> 내 기록 보기</button>
             </div>
           )}
           {!isOut && (
