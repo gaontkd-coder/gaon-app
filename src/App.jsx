@@ -847,7 +847,7 @@ function OperationsView({ data }) {
       {panel === "members" && (
         <>
           {(() => {
-            const cumul = periods.map((p) => ({ label: isYear ? `${p}` : `${Number(p.slice(5))}월`, value: data.members.filter((m) => (m.joinDate || "").slice(0, isYear ? 4 : 7) <= p).length }));
+            const cumul = periods.map((p) => ({ p, n: data.members.filter((m) => (m.joinDate || "").slice(0, isYear ? 4 : 7) <= p).length }));
             const internal = active.filter((m) => m.general).length;
             const external = active.length - internal;
             const paused = data.members.filter((m) => m.status === "정지중").length;
