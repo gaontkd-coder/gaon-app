@@ -742,6 +742,7 @@ function Dashboard({ data, wide, setTab, role, admin }) {
     { id: "notice", label: "공지", Ic: Megaphone },
     { id: "training", label: "운영", Ic: Flame },
     { id: "schedule", label: "지도진", Ic: CalendarCheck },
+    ...(can(role, "finance") ? [{ id: "finance", label: "재무", Ic: Ticket }] : []),
     ...(can(role, "accounts") ? [{ id: "accounts", label: "관리자", Ic: KeyRound }] : []),
   ];
 
