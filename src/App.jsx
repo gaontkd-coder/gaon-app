@@ -118,6 +118,7 @@ const PERM = {
   holiday: ["director", "vice", "senior"],
   finance: ["director"],
   locker: ["director"],
+  training: ["director"],
 };
 const can = (role, key) => (PERM[key] || []).includes(role);
 // 휴무 판정: 전체 휴무(only 없음) 또는 특정 수업만 휴무(only에 포함)
@@ -691,14 +692,18 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
     ["events", "이벤트", Trophy],
     ["videos", "영상", Video],
     ["notice", "공지", Megaphone],
-    ["training", "운영", Flame],
     ["schedule", "지도진", CalendarCheck],
+  ];
+  // 관장 전용 영역 (운영·재무·관리자)
+  const ownerTabs = [
+    ...(can(admin.role, "training") ? [["training", "운영", Flame]] : []),
     ...(can(admin.role, "finance") ? [["finance", "재무", Ticket]] : []),
     ...(can(admin.role, "accounts") ? [["accounts", "관리자", KeyRound]] : []),
   ];
+  const allTabs = [...tabs, ...ownerTabs];
   const content = (
     <>
-      {tab === "dashboard" && <Dashboard data={data} wide={wide} setTab={setTab} role={admin.role} admin={admin} />}
+      {tab === "dashboard" && <Dashboard data={data} wide={wide} setTab={setTab} role={admin.role} admin={admin} ownerTabs={ownerTabs} />}
       {tab === "classes" && <ClassesAdmin data={data} persist={persist} kind="수업" canEdit={can(admin.role, "classes")} canHoliday={can(admin.role, "holiday")} />}
       {tab === "attend" && <ReserveAdmin data={data} persist={persist} />}
       {tab === "locker" && can(admin.role, "locker") && <LockerView data={data} persist={persist} />}
@@ -706,7 +711,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
       {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" canEdit={can(admin.role, "classes")} />}
       {tab === "videos" && <VideosView data={data} persist={persist} admin={can(admin.role, "classes")} />}
       {tab === "notice" && <NoticeAdmin data={data} persist={persist} canEdit={can(admin.role, "notice")} />}
-      {tab === "training" && <OperationsView data={data} />}
+      {tab === "training" && can(admin.role, "training") && <OperationsView data={data} />}
       {tab === "schedule" && <ScheduleView data={data} persist={persist} canEdit={can(admin.role, "schedule")} />}
       {tab === "finance" && can(admin.role, "finance") && <FinanceView data={data} persist={persist} />}
       {tab === "accounts" && can(admin.role, "accounts") && <AdminAccounts data={data} persist={persist} me={admin} />}
@@ -715,7 +720,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
   if (wide) {
     return (
       <div style={{ display: "flex", gap: 28, paddingTop: 26 }}>
-        <Sidebar tabs={tabs} tab={tab} setTab={setTab} admin={admin} onLogout={onLogout} onViewMember={onViewMember} />
+        <Sidebar tabs={tabs} ownerTabs={ownerTabs} tab={tab} setTab={setTab} admin={admin} onLogout={onLogout} onViewMember={onViewMember} />
         <div style={{ flex: 1, minWidth: 0 }}>{content}</div>
       </div>
     );
@@ -726,13 +731,13 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
       {tab === "dashboard"
         ? <button onClick={onViewMember} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "11px 0", marginBottom: 14, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><User size={15} /> 수련자 화면 보기 (내 수업·기록)</button>
         : <button onClick={() => setTab("dashboard")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> 홈</button>}
-      {tab !== "dashboard" && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
+      {tab !== "dashboard" && <TabBar tabs={allTabs} tab={tab} setTab={setTab} />}
       {content}
     </>
   );
 }
 
-function Sidebar({ tabs, tab, setTab, admin, onLogout, onViewMember }) {
+function Sidebar({ tabs, ownerTabs = [], tab, setTab, admin, onLogout, onViewMember }) {
   return (
     <aside style={{ width: 212, flexShrink: 0, position: "sticky", top: 26, alignSelf: "flex-start", height: "calc(100vh - 52px)", display: "flex", flexDirection: "column" }}>
       <div style={{ paddingBottom: 18, borderBottom: `1px solid ${C.line}`, marginBottom: 14 }}>
@@ -751,6 +756,26 @@ function Sidebar({ tabs, tab, setTab, admin, onLogout, onViewMember }) {
             </button>
           );
         })}
+        {ownerTabs.length > 0 && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, margin: "14px 6px 6px" }}>
+              <Lock size={11} color="#9a7be0" />
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#9a7be0", letterSpacing: 0.5 }}>관장 전용</span>
+              <div style={{ flex: 1, height: 1, background: "#3a2f55" }} />
+            </div>
+            {ownerTabs.map(([id, label, Icon]) => {
+              const on = tab === id;
+              return (
+                <button key={id} onClick={() => setTab(id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px",
+                  background: on ? "linear-gradient(135deg,#6d52c4,#4a3585)" : "rgba(120,90,200,0.08)", color: on ? "#fff" : "#b9a9e0",
+                  border: `1px solid ${on ? "transparent" : "#3a2f55"}`, borderRadius: 11, fontSize: 14, fontWeight: 700, cursor: "pointer", textAlign: "left",
+                  boxShadow: on ? "0 4px 14px rgba(120,90,200,0.3)" : "none" }}>
+                  <Icon size={17} /> {label}
+                </button>
+              );
+            })}
+          </>
+        )}
       </nav>
       <button onClick={onViewMember} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", marginBottom: 8, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><User size={15} /> 수련자 화면 보기</button>
       <button onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", background: "transparent", border: `1px solid ${C.line}`, borderRadius: 11, color: C.dim, fontSize: 13, fontWeight: 600, cursor: "pointer" }}><LogOut size={15} /> 로그아웃</button>
@@ -758,7 +783,7 @@ function Sidebar({ tabs, tab, setTab, admin, onLogout, onViewMember }) {
   );
 }
 
-function Dashboard({ data, wide, setTab, role, admin }) {
+function Dashboard({ data, wide, setTab, role, admin, ownerTabs = [] }) {
   const big = [
     { id: "members", label: "회원 관리", sub: "명단 · 수강권 · 상품권", Ic: Users },
     { id: "classes", label: "수업", sub: "시간표 · 수업 개설", Ic: BookOpen },
@@ -773,11 +798,10 @@ function Dashboard({ data, wide, setTab, role, admin }) {
     { id: "events", label: "이벤트", Ic: Trophy },
     { id: "videos", label: "수련 영상", Ic: Video },
     { id: "notice", label: "공지", Ic: Megaphone },
-    { id: "training", label: "운영", Ic: Flame },
     { id: "schedule", label: "지도진", Ic: CalendarCheck },
-    ...(can(role, "finance") ? [{ id: "finance", label: "재무", Ic: Ticket }] : []),
-    ...(can(role, "accounts") ? [{ id: "accounts", label: "관리자", Ic: KeyRound }] : []),
   ];
+  const ownerIcons = { training: Flame, finance: Ticket, accounts: KeyRound };
+  const ownerSubs = { training: "통계 · 현황 분석", finance: "수입·지출·월급·가격", accounts: "사범 계정 관리" };
 
   const today = todayStr();
   const dow = dowOf(today);
@@ -815,6 +839,32 @@ function Dashboard({ data, wide, setTab, role, admin }) {
         ))}
       </div>
 
+      {ownerTabs.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, margin: "4px 2px 10px" }}>
+            <Lock size={12} color="#9a7be0" />
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#9a7be0", letterSpacing: 0.5 }}>관장 전용</span>
+            <div style={{ flex: 1, height: 1, background: "#3a2f55" }} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(3, ownerTabs.length)}, 1fr)`, gap: 9 }}>
+            {ownerTabs.map(([id, label]) => {
+              const Ic = ownerIcons[id] || Flame;
+              return (
+                <button key={id} onClick={() => setTab(id)} style={{ textAlign: "left", background: "linear-gradient(135deg,#241c3d,#16121f)", border: "1px solid #4a3a72", borderRadius: 14, padding: "14px 13px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 10, minHeight: 84 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(140,110,220,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic size={18} color="#b9a9e0" /></div>
+                    <ChevronRight size={15} color="#7a6aa8" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: "#fff" }}>{label}</div>
+                    <div style={{ fontSize: 10, color: "#9a8ec0", marginTop: 2 }}>{ownerSubs[id]}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {/* 사범 정보 */}
       <div style={{ display: "flex", alignItems: "center", gap: 11, background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "13px 15px", marginBottom: 16 }}>
         <div style={{ width: 40, height: 40, borderRadius: 11, background: C.goldGrad, color: "#1a1305", display: "flex", alignItems: "center", justifyContent: "center" }}><Shield size={18} /></div>
