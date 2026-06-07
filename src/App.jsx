@@ -122,6 +122,49 @@ const attSt = (v) => (typeof v === "string" ? v : v?.st) || "";
 const attG = (v) => (typeof v === "string" ? "정규" : v?.g) || "정규";
 const ATT_GROUPS = ["정규", "시범단", "겨루기", "품새"];
 const VIDEO_CATS = ["품새", "발차기", "겨루기", "시범", "기타"];
+// ── 수련자 모드 한/영 번역 사전 ──
+const LANG = {
+  ko: {
+    home: "홈", classes: "수업", events: "이벤트", videos: "영상", mine: "내 기록",
+    member: "수련자", instructor: "지도진", logout: "로그아웃", toAdmin: "관리자로",
+    myRecord: "나의 수련 기록", totalTrain: "누적 수련 횟수", thisMonth: "이번달",
+    reserveApply: "수업 신청", trainVideos: "수련 영상",
+    introTitle: "가온태권도장 소개",
+    intro: "성인·외국인만을 대상으로 운영하는 태권도장! 현재 약 100여 명의 성인 회원들이 아이들 없이 태권도 수련을 하고 있는 국내 유일 성인 전문 태권도장입니다.",
+    feat: ["성인·외국인 전문 취미 태권도장", "단증 취득 / 지도자 자격증 취득", "태권도학과 진학 입시 준비", "각종 생활체육 태권도 대회 참가", "품새 / 겨루기 / 시범 전문 팀 운영"],
+    timetableTitle: "수련 시간표",
+    contactTitle: "오시는 길 · 상담 문의",
+    c_phone: "상담 문의", c_addr: "주소", c_addrV: "서울 서대문구 신촌로 61 (신촌역 1번 출구 도보 4분)",
+    noticeTitle: "공지사항", noNotice: "공지가 없습니다.",
+    myInfo: "내 정보", memberNo: "회원번호", enrolled: "등록 수업", noEnroll: "등록된 수업이 없습니다.",
+    myTerm: "내 수강권", myVoucher: "내 상품권",
+    restMsg: "현재 휴식 중이에요. 수련 기록은 볼 수 있으며, 복귀를 원하시면 도장에 문의해 주세요.",
+    pauseMsg: "현재 정지 상태예요. 수련 기록은 볼 수 있지만 수업·이벤트 신청은 재등록 후 가능합니다.",
+    inquiry: "문의", viewRecord: "내 기록 보기",
+    outMsg: "탈퇴 회원은 도장 정보와 공지만 확인할 수 있습니다. 재등록 문의: 010-8984-3725",
+    detail: "자세히 보기",
+  },
+  en: {
+    home: "Home", classes: "Classes", events: "Events", videos: "Videos", mine: "My Record",
+    member: "Member", instructor: "Instructor", logout: "Log out", toAdmin: "To Admin",
+    myRecord: "My Training Record", totalTrain: "Total Sessions", thisMonth: "This Month",
+    reserveApply: "Book Class", trainVideos: "Training Videos",
+    introTitle: "About Gaon Taekwondo",
+    intro: "An adults-only Taekwondo studio. Around 100 adult members currently train here — Korea's only Taekwondo dojang exclusively for adults, with no children's classes.",
+    feat: ["Adults & foreigners specialized hobby dojang", "Belt promotion / instructor certification", "Taekwondo university admission prep", "Participation in amateur Taekwondo competitions", "Poomsae / Sparring / Demo specialist teams"],
+    timetableTitle: "Class Schedule",
+    contactTitle: "Location & Contact",
+    c_phone: "Inquiry", c_addr: "Address", c_addrV: "61 Sinchon-ro, Seodaemun-gu, Seoul (4 min walk from Sinchon Stn. Exit 1)",
+    noticeTitle: "Notices", noNotice: "No notices yet.",
+    myInfo: "My Info", memberNo: "Member No.", enrolled: "Enrolled Classes", noEnroll: "No enrolled classes.",
+    myTerm: "My Membership", myVoucher: "My Vouchers",
+    restMsg: "You are currently on a break. You can view your records. Please contact the studio to return.",
+    pauseMsg: "Your membership is paused. You can view records, but booking requires re-registration.",
+    inquiry: "Contact", viewRecord: "View My Record",
+    outMsg: "Withdrawn members can only view studio info and notices. Re-registration: 010-8984-3725",
+    detail: "Read more",
+  },
+};
 // 유튜브 링크에서 영상 ID 추출
 function ytId(url) {
   if (!url) return "";
@@ -2208,12 +2251,17 @@ function AdminAccounts({ data, persist, me }) {
 // ═══════════ 수련자 ═══════════
 function Member({ data, persist, me, onLogout, asAdmin }) {
   const [tab, setTab] = useState("home");
+  const [lang, setLang] = useState("ko");
+  const t = (k) => (LANG[lang] || LANG.ko)[k];
   const isOut = me.status === "탈퇴", isPaused = me.status === "정지중" || me.status === "휴식중";
-  const tabs = isOut ? [["home", "홈", User]]
-    : isPaused ? [["home", "홈", User], ["mine", "내 기록", BookOpen]]
-    : [["home", "홈", User], ["reserve", "수업", CalendarCheck], ["events", "이벤트", Trophy], ["videos", "영상", Video], ["mine", "내 기록", BookOpen]];
+  const tabs = isOut ? [["home", t("home"), User]]
+    : isPaused ? [["home", t("home"), User], ["mine", t("mine"), BookOpen]]
+    : [["home", t("home"), User], ["reserve", t("classes"), CalendarCheck], ["events", t("events"), Trophy], ["videos", t("videos"), Video], ["mine", t("mine"), BookOpen]];
   const total = trainTotal(data, me.id), month = trainMonth(data, me.id);
   const star = me.instructor ? "★ " : "";
+  const langBtn = (
+    <button onClick={() => setLang(lang === "ko" ? "en" : "ko")} style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 8, color: C.gold, fontSize: 12, fontWeight: 700, padding: "6px 11px", cursor: "pointer", marginBottom: 12 }}>🌐 {lang === "ko" ? "English" : "한국어"}</button>
+  );
 
   return (
     <>
@@ -2222,8 +2270,9 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
           <Shield size={15} /> 관리자가 보는 수련자 화면입니다 · {star}{me.name}
         </div>
       )}
-      <TopBar role={asAdmin ? "지도진" : "수련자"} name={`${star}${me.name} · ${me.no}`} onLogout={onLogout} logoutLabel={asAdmin ? "관리자로" : "로그아웃"} />
-      {tab !== "home" && <button onClick={() => setTab("home")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> 홈</button>}
+      <TopBar role={asAdmin ? t("instructor") : t("member")} name={`${star}${me.name} · ${me.no}`} onLogout={onLogout} logoutLabel={asAdmin ? t("toAdmin") : t("logout")} />
+      {tab === "home" && langBtn}
+      {tab !== "home" && <button onClick={() => setTab("home")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> {t("home")}</button>}
       {tab !== "home" && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <NoticeMarquee notices={data.notices} />
       {tab === "home" && (
@@ -2231,22 +2280,22 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
           {!isOut && (
             <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 18, padding: 22, marginBottom: 16,
               backgroundImage: "radial-gradient(500px circle at 100% 0%, rgba(216,180,90,0.10), transparent 60%)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.dim, marginBottom: 10 }}><Flame size={15} color={C.gold} /> 나의 수련 기록</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.dim, marginBottom: 10 }}><Flame size={15} color={C.gold} /> {t("myRecord")}</div>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 24 }}>
                 <div>
                   <div style={{ fontFamily: DISP, fontSize: 46, fontWeight: 700, lineHeight: 1, background: C.goldGrad, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{total}</div>
-                  <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>누적 수련 횟수</div>
+                  <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>{t("totalTrain")}</div>
                 </div>
                 <div>
                   <div style={{ fontFamily: DISP, fontSize: 30, fontWeight: 600, lineHeight: 1, color: C.text }}>{month}</div>
-                  <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>이번달</div>
+                  <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>{t("thisMonth")}</div>
                 </div>
               </div>
             </div>
           )}
           {me.status === "활동중" && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9, marginBottom: 16 }}>
-              {[["reserve", "수업 신청", CalendarCheck], ["events", "이벤트", Trophy], ["videos", "수련 영상", Video], ["mine", "내 기록", BookOpen]].map(([id, label, Ic]) => (
+              {[["reserve", t("reserveApply"), CalendarCheck], ["events", t("events"), Trophy], ["videos", t("trainVideos"), Video], ["mine", t("mine"), BookOpen]].map(([id, label, Ic]) => (
                 <button key={id} onClick={() => setTab(id)} style={{ textAlign: "center", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
                   <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, height: 60, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic size={21} color={C.gold} /></div>
                   <div style={{ fontSize: 10, color: "#cfcfd6", marginTop: 5 }}>{label}</div>
@@ -2256,50 +2305,48 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
           )}
           {isPaused && (
             <div style={{ background: "#241f12", border: "1px solid #5a4a22", borderRadius: 12, padding: "13px 15px", marginBottom: 16, fontSize: 13, color: "#dcc89a", lineHeight: 1.6 }}>
-              {me.status === "휴식중" ? "현재 휴식 중이에요. 수련 기록은 볼 수 있으며, 복귀를 원하시면 도장에 문의해 주세요." : "현재 정지 상태예요. 수련 기록은 볼 수 있지만 수업·이벤트 신청은 재등록 후 가능합니다."} 문의: 010-8984-3725
-              <button onClick={() => setTab("mine")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", marginTop: 12, padding: "10px 0", background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 10, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><BookOpen size={15} /> 내 기록 보기</button>
+              {me.status === "휴식중" ? t("restMsg") : t("pauseMsg")} {t("inquiry")}: 010-8984-3725
+              <button onClick={() => setTab("mine")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", marginTop: 12, padding: "10px 0", background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 10, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><BookOpen size={15} /> {t("viewRecord")}</button>
             </div>
           )}
           {!isOut && (
-            <Panel title="내 정보">
-              <InfoRow k="회원번호" v={me.no} mono />
-              <InfoRow k="상태" v={me.status} />
-              <InfoRow k="등록 수업" v={(me.enrollments || []).join(", ") || "없음"} />
+            <Panel title={t("myInfo")}>
+              <InfoRow k={t("memberNo")} v={me.no} mono />
+              <InfoRow k={lang === "ko" ? "상태" : "Status"} v={me.status} />
+              <InfoRow k={t("enrolled")} v={(me.enrollments || []).join(", ") || (lang === "ko" ? "없음" : "None")} />
             </Panel>
           )}
-          <Panel title="가온태권도장 소개">
-            <p style={{ fontSize: 13.5, color: "#e4e4e8", lineHeight: 1.75, margin: 0 }}>
-              성인·외국인만을 대상으로 운영하는 태권도장! 현재 약 <b style={{ color: C.gold }}>100여 명의 성인 회원</b>들이 아이들 없이 태권도 수련을 하고 있는 <b style={{ color: C.gold }}>국내 유일 성인 전문 태권도장</b>입니다.
-            </p>
+          <Panel title={t("introTitle")}>
+            <p style={{ fontSize: 13.5, color: "#e4e4e8", lineHeight: 1.75, margin: 0 }}>{t("intro")}</p>
             <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 9 }}>
-              {["성인·외국인 전문 취미 태권도장", "단증 취득 / 지도자 자격증 취득", "태권도학과 진학 입시 준비", "각종 생활체육 태권도 대회 참가", "품새 / 겨루기 / 시범 전문 팀 운영"].map((t) => (
-                <div key={t} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: "#dadae0" }}>
-                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: C.gold, flexShrink: 0 }} />{t}
+              {t("feat").map((ft) => (
+                <div key={ft} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: "#dadae0" }}>
+                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: C.gold, flexShrink: 0 }} />{ft}
                 </div>
               ))}
             </div>
           </Panel>
-          <Panel title="수련 시간표">
-            <img src="/timetable.png" alt="가온태권도장 수련 시간표" style={{ width: "100%", borderRadius: 10, display: "block" }} />
+          <Panel title={t("timetableTitle")}>
+            <img src="/timetable.png" alt="Gaon Taekwondo schedule" style={{ width: "100%", borderRadius: 10, display: "block" }} />
           </Panel>
-          <Panel title="오시는 길 · 상담 문의">
-            <InfoRow k="상담 문의" v="010-8984-3725" />
-            <InfoRow k="주소" v="서울 서대문구 신촌로 61 (신촌역 1번 출구 도보 4분)" />
-            <InfoRow k="인스타그램" v="@gaon_tkd" />
-            <InfoRow k="네이버카페" v="cafe.naver.com/gaontkd" />
-            <InfoRow k="카카오톡" v="gaon-tkd" />
+          <Panel title={t("contactTitle")}>
+            <InfoRow k={t("c_phone")} v="010-8984-3725" />
+            <InfoRow k={t("c_addr")} v={t("c_addrV")} />
+            <InfoRow k="Instagram" v="@gaon_tkd" />
+            <InfoRow k={lang === "ko" ? "네이버카페" : "Naver Cafe"} v="cafe.naver.com/gaontkd" />
+            <InfoRow k={lang === "ko" ? "카카오톡" : "KakaoTalk"} v="gaon-tkd" />
           </Panel>
-          <Panel title="공지사항">
-            {data.notices.length === 0 ? <Empty>공지가 없습니다.</Empty> : data.notices.map((n) => (
+          <Panel title={t("noticeTitle")}>
+            {data.notices.length === 0 ? <Empty>{t("noNotice")}</Empty> : data.notices.map((n) => (
               <div key={n.id} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
                 <div style={{ fontWeight: 700 }}>{n.title}</div>
                 <div style={{ fontSize: 11, color: C.dim2, margin: "3px 0 6px", fontFamily: DISP }}>{n.date}</div>
                 <div style={{ fontSize: 13, color: "#dadae0", lineHeight: 1.6 }}>{n.body}</div>
-                {n.link && <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 9, fontSize: 12, fontWeight: 700, color: C.gold, textDecoration: "none", border: `1px solid #5a4a22`, borderRadius: 8, padding: "6px 12px" }}>자세히 보기 →</a>}
+                {n.link && <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 9, fontSize: 12, fontWeight: 700, color: C.gold, textDecoration: "none", border: `1px solid #5a4a22`, borderRadius: 8, padding: "6px 12px" }}>{t("detail")} →</a>}
               </div>
             ))}
           </Panel>
-          {isOut && <p style={{ textAlign: "center", fontSize: 12, color: C.dim2, marginTop: 20 }}>탈퇴 회원은 도장 정보와 공지만 확인할 수 있습니다. 재등록 문의: 010-8984-3725</p>}
+          {isOut && <p style={{ textAlign: "center", fontSize: 12, color: C.dim2, marginTop: 20 }}>{t("outMsg")}</p>}
         </div>
       )}
       {tab === "reserve" && !isOut && <ReserveMember data={data} persist={persist} me={me} locked={isPaused} kind="수업" />}
