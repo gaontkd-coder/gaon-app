@@ -2432,7 +2432,7 @@ function ReserveMember({ data, persist, me, locked, kind, lang = "ko" }) {
   const DW = lang === "en" ? DAYS_EN : DAYS;
   const [base, setBase] = useState(new Date().toISOString().slice(0, 10));
   const [monthBase, setMonthBase] = useState(new Date().toISOString().slice(0, 10));
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(kind === "행사" ? null : todayStr());
   const [applyFor, setApplyFor] = useState(null);
   const week = weekDates(base);
   const isEv = kind === "행사";
@@ -2504,17 +2504,11 @@ function ReserveMember({ data, persist, me, locked, kind, lang = "ko" }) {
         </div>
       )}
 
-      <div style={{ height: 1, background: C.line, margin: "18px 0 16px" }} />
-      {isEv ? (
+      {isEv && (
         <>
+          <div style={{ height: 1, background: C.line, margin: "18px 0 16px" }} />
           <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>{t("upcomingEv")}</div>
           {items.length === 0 ? <Empty>{t("noUpcomingEv")}</Empty> : items.map(({ c, date }) => renderCard(c, date))}
-        </>
-      ) : (
-        <>
-          <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>{t("weekAll")}</div>
-          <WeekNav base={base} setBase={setBase} week={week} />
-          {items.length === 0 ? <Empty>{t("noWeekClass")}</Empty> : items.map(({ c, date }) => renderCard(c, date))}
         </>
       )}
       {applyFor && <ApplyModal event={applyFor.c} onSubmit={(ans) => submitApply(applyFor.c, applyFor.date, ans)} onClose={() => setApplyFor(null)} />}
