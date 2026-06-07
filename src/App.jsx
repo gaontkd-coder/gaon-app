@@ -429,6 +429,7 @@ function normalize(d) {
   if (!d.holidays) d.holidays = {};
   if (!d.pricing) d.pricing = { ...DEFAULT_PRICING };
   if (!d.finance) d.finance = [];
+  if (!d.salaries) d.salaries = {};
   if (!d.teamDays) d.teamDays = { ...DEFAULT_TEAM_DAYS };
   d.members = (d.members || []).map((m) => {
     const e = m.enrollments || [...(m.session ? [m.session] : []), ...(m.team && m.team !== "없음" ? [m.team] : [])];
@@ -1963,18 +1964,23 @@ const FIN_CATS_IN = ["수강료", "팀비", "도복", "심사", "사물함", "�
 const FIN_CATS_OUT = ["임대료", "인건비", "공과금", "용품구입", "마케팅", "기타지출"];
 
 function FinanceView({ data, persist }) {
-  const [tab, setTab] = useState("ledger"); // ledger | pricing
+  const [tab, setTab] = useState("ledger"); // ledger | stats | salary | pricing
+  const tabs = [["ledger", "수입·지출"], ["stats", "집계·분석"], ["salary", "월급"], ["pricing", "가격 설정"]];
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
         <span style={{ fontSize: 17, fontWeight: 800 }}>재무 관리</span>
         <span style={{ fontSize: 11, color: C.dim2, marginLeft: 8 }}>· 관장 전용</span>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-          <button onClick={() => setTab("ledger")} style={{ ...pill, padding: "7px 13px", background: tab === "ledger" ? C.goldGrad : "transparent", color: tab === "ledger" ? "#1a1305" : C.dim, borderColor: tab === "ledger" ? "transparent" : C.line }}>수입·지출</button>
-          <button onClick={() => setTab("pricing")} style={{ ...pill, padding: "7px 13px", background: tab === "pricing" ? C.goldGrad : "transparent", color: tab === "pricing" ? "#1a1305" : C.dim, borderColor: tab === "pricing" ? "transparent" : C.line }}>가격 설정</button>
-        </div>
       </div>
-      {tab === "ledger" ? <FinanceLedger data={data} persist={persist} /> : <FinancePricing data={data} persist={persist} />}
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 16, paddingBottom: 2 }}>
+        {tabs.map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} style={{ flexShrink: 0, ...pill, padding: "8px 15px", background: tab === k ? C.goldGrad : "transparent", color: tab === k ? "#1a1305" : C.dim, borderColor: tab === k ? "transparent" : C.line }}>{l}</button>
+        ))}
+      </div>
+      {tab === "ledger" && <FinanceLedger data={data} persist={persist} />}
+      {tab === "stats" && <FinanceStats data={data} />}
+      {tab === "salary" && <FinanceSalary data={data} persist={persist} />}
+      {tab === "pricing" && <FinancePricing data={data} persist={persist} />}
     </div>
   );
 }
@@ -2052,6 +2058,154 @@ function FinanceLedger({ data, persist }) {
           <Field label="금액 (원)"><input type="number" style={inp} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="예: 180000" /></Field>
           <Field label="메모 (선택 · 회원명·혜택 등)"><input style={inp} value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} placeholder="예: 김지훈 6개월 등록 (도복 증정)" /></Field>
           <button onClick={save} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8 }}><Check size={16} /> 저장</button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// 집계·분석 — 월별 추이 + 항목별 비중
+function FinanceStats({ data }) {
+  const [unit, setUnit] = useState("month"); // month | year
+  const isYear = unit === "year";
+  const fin = data.finance || [];
+  const periods = isYear ? activeYears(data) : recentMonths(6);
+  const key = (f) => (f.date || "").slice(0, isYear ? 4 : 7);
+
+  const rows = periods.map((pr) => {
+    const inc = fin.filter((f) => f.type === "수입" && key(f) === pr).reduce((s, f) => s + (f.amount || 0), 0);
+    const exp = fin.filter((f) => f.type === "지출" && key(f) === pr).reduce((s, f) => s + (f.amount || 0), 0);
+    return { p: pr, inc, exp, net: inc - exp };
+  });
+  const maxV = Math.max(1, ...rows.map((r) => Math.max(r.inc, r.exp)));
+
+  // 이번 기간 항목별 수입 비중
+  const cur = isYear ? String(new Date().getFullYear()) : ym();
+  const incByCat = {};
+  fin.filter((f) => f.type === "수입" && key(f) === cur).forEach((f) => { incByCat[f.cat] = (incByCat[f.cat] || 0) + (f.amount || 0); });
+  const catRows = Object.entries(incByCat).sort((a, b) => b[1] - a[1]);
+  const catTotal = catRows.reduce((s, [, v]) => s + v, 0);
+  const expByCat = {};
+  fin.filter((f) => f.type === "지출" && key(f) === cur).forEach((f) => { expByCat[f.cat] = (expByCat[f.cat] || 0) + (f.amount || 0); });
+  const expRows = Object.entries(expByCat).sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {[["month", "월별"], ["year", "연별"]].map(([v, l]) => (
+          <button key={v} onClick={() => setUnit(v)} style={{ ...pill, padding: "7px 14px", background: unit === v ? C.goldGrad : "transparent", color: unit === v ? "#1a1305" : C.dim, borderColor: unit === v ? "transparent" : C.line }}>{l}</button>
+        ))}
+      </div>
+
+      <Panel title={`수입 · 지출 추이 · ${isYear ? "연별" : "월별"}`}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 130, padding: "0 2px" }}>
+          {rows.map((r, i) => (
+            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 95, width: "100%", justifyContent: "center" }}>
+                <div title={`수입 ${won(r.inc)}`} style={{ width: "40%", height: `${Math.max(2, (r.inc / maxV) * 95)}px`, background: "#3fa86a", borderRadius: "3px 3px 0 0" }} />
+                <div title={`지출 ${won(r.exp)}`} style={{ width: "40%", height: `${Math.max(2, (r.exp / maxV) * 95)}px`, background: "#e0726a", borderRadius: "3px 3px 0 0" }} />
+              </div>
+              <span style={{ fontSize: 9, color: r.net >= 0 ? C.gold : "#e0726a", fontFamily: DISP, fontWeight: 700 }}>{r.net >= 0 ? "+" : ""}{Math.round(r.net / 10000)}만</span>
+              <span style={{ fontSize: 9, color: C.dim2 }}>{periodLabel(r.p, isYear)}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 12, fontSize: 11, color: C.dim }}>
+          <span><span style={{ display: "inline-block", width: 9, height: 9, background: "#3fa86a", borderRadius: 2, marginRight: 4 }} />수입</span>
+          <span><span style={{ display: "inline-block", width: 9, height: 9, background: "#e0726a", borderRadius: 2, marginRight: 4 }} />지출</span>
+        </div>
+      </Panel>
+
+      <Panel title={`이번 ${isYear ? "해" : "달"} 수입 항목별`} sub={`합계 ${won(catTotal)}원`}>
+        {catRows.length === 0 ? <Empty>수입 기록이 없습니다.</Empty> : catRows.map(([c, v]) => (
+          <div key={c} style={{ padding: "9px 0", borderBottom: `1px solid ${C.line}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5 }}>
+              <span>{c}</span><span style={{ fontFamily: DISP, fontWeight: 700, color: "#3fa86a" }}>{won(v)} <span style={{ fontSize: 11, color: C.dim2 }}>({Math.round(v / catTotal * 100)}%)</span></span>
+            </div>
+            <div style={{ height: 6, background: "#202028", borderRadius: 4, overflow: "hidden" }}><div style={{ width: `${v / catTotal * 100}%`, height: "100%", background: "#3fa86a" }} /></div>
+          </div>
+        ))}
+      </Panel>
+
+      {expRows.length > 0 && (
+        <Panel title={`이번 ${isYear ? "해" : "달"} 지출 항목별`}>
+          {expRows.map(([c, v]) => (
+            <div key={c} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "9px 0", borderBottom: `1px solid ${C.line}` }}>
+              <span>{c}</span><span style={{ fontFamily: DISP, fontWeight: 700, color: "#e0726a" }}>{won(v)}</span>
+            </div>
+          ))}
+        </Panel>
+      )}
+    </div>
+  );
+}
+
+// 사범 월급 관리
+function FinanceSalary({ data, persist }) {
+  const [month, setMonth] = useState(ym());
+  const [edit, setEdit] = useState(null);
+  const salaries = data.salaries || {};
+  const monthData = salaries[month] || {};
+  // 지도진(관리자 계정 + 회원 중 instructor) 목록
+  const staff = data.admins.filter((a) => a.role !== "director" || true).map((a) => ({ key: `a${a.id}`, name: a.name, role: roleLabel(a.role) }));
+  const total = staff.reduce((s, st) => s + (monthData[st.key]?.amount || 0), 0);
+
+  const shiftMonth = (d) => { const [y, m] = month.split("-").map(Number); const nd = new Date(y, m - 1 + d, 1); setMonth(`${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, "0")}`); };
+  const saveOne = (key, amount, memo) => {
+    const md = { ...(salaries[month] || {}) };
+    md[key] = { amount: Number(amount) || 0, memo: memo || "" };
+    persist({ ...data, salaries: { ...salaries, [month]: md } });
+    setEdit(null);
+  };
+  // 월급을 재무 지출로 일괄 반영
+  const postToLedger = () => {
+    if (total <= 0) { alert("입력된 월급이 없습니다."); return; }
+    if (!confirm(`${month} 월급 합계 ${won(total)}원을 지출로 기록할까요?`)) return;
+    const fin = data.finance || [];
+    const exists = fin.find((f) => f.salaryMonth === month);
+    if (exists) { alert("이 달 월급은 이미 지출에 기록되어 있습니다."); return; }
+    const rec = { id: Date.now(), type: "지출", date: `${month}-25`, cat: "인건비", amount: total, memo: `${month} 사범 월급 (${staff.filter((s) => monthData[s.key]?.amount).length}명)`, salaryMonth: month };
+    persist({ ...data, finance: [...fin, rec] });
+    alert("지출로 기록되었습니다.");
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 14 }}>
+        <button onClick={() => shiftMonth(-1)} style={{ ...iconBtn, width: 34, height: 34 }}><ChevronLeft size={16} /></button>
+        <span style={{ fontFamily: DISP, fontWeight: 700, fontSize: 16 }}>{month.replace("-", ". ")}</span>
+        <button onClick={() => shiftMonth(1)} style={{ ...iconBtn, width: 34, height: 34 }}><ChevronRight size={16} /></button>
+      </div>
+
+      <div style={{ background: "#181206", border: `1px solid ${C.gold}`, borderRadius: 12, padding: "13px 16px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontWeight: 700, color: C.gold }}>월급 합계</span>
+        <span style={{ fontFamily: DISP, fontWeight: 800, fontSize: 20, color: C.gold }}>{won(total)}<span style={{ fontSize: 12, fontFamily: FONT }}>원</span></span>
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden", marginBottom: 14 }}>
+        {staff.map((st) => {
+          const rec = monthData[st.key] || {};
+          return (
+            <div key={st.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700 }}>{st.name} <span style={{ fontSize: 10, color: C.gold }}>{st.role}</span></div>
+                {rec.memo && <div style={{ fontSize: 11, color: C.dim2 }}>{rec.memo}</div>}
+              </div>
+              <span style={{ fontFamily: DISP, fontWeight: 700, color: rec.amount ? C.text : C.dim2 }}>{rec.amount ? won(rec.amount) : "미입력"}</span>
+              <button onClick={() => setEdit({ key: st.key, name: st.name, amount: rec.amount || "", memo: rec.memo || "" })} style={iconBtn}><Pencil size={13} /></button>
+            </div>
+          );
+        })}
+      </div>
+
+      <button onClick={postToLedger} style={{ ...btnGold, width: "100%", justifyContent: "center", background: "linear-gradient(135deg,#a23b3b,#822e2e)", color: "#fff" }}><Check size={16} /> 이 달 월급을 지출로 기록</button>
+      <div style={{ fontSize: 11, color: C.dim2, marginTop: 8, textAlign: "center" }}>월급 입력 후 누르면 재무 장부에 인건비 지출로 반영됩니다.</div>
+
+      {edit && (
+        <Modal title={`${edit.name} 월급 (${month})`} onClose={() => setEdit(null)}>
+          <Field label="금액 (원)"><input type="number" style={inp} value={edit.amount} onChange={(e) => setEdit({ ...edit, amount: e.target.value })} placeholder="예: 2000000" autoFocus /></Field>
+          <Field label="메모 (선택)"><input style={inp} value={edit.memo} onChange={(e) => setEdit({ ...edit, memo: e.target.value })} placeholder="예: 기본급+수당" /></Field>
+          <button onClick={() => saveOne(edit.key, edit.amount, edit.memo)} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8 }}><Check size={16} /> 저장</button>
         </Modal>
       )}
     </div>
