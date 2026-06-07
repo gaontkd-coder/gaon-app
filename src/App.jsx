@@ -2311,6 +2311,7 @@ function AdminAccounts({ data, persist, me }) {
 function Member({ data, persist, me, onLogout, asAdmin }) {
   const [tab, setTab] = useState("home");
   const [lang, setLang] = useState("ko");
+  const [zoomImg, setZoomImg] = useState(false);
   const t = (k) => (LANG[lang] || LANG.ko)[k];
   const isOut = me.status === "탈퇴", isPaused = me.status === "정지중" || me.status === "휴식중";
   const tabs = isOut ? [["home", t("home"), User]]
@@ -2385,7 +2386,8 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
             </div>
           </Panel>
           <Panel title={t("timetableTitle")}>
-            <img src="/timetable.png" alt="Gaon Taekwondo schedule" style={{ width: "100%", borderRadius: 10, display: "block" }} />
+            <img src={lang === "en" ? "/timetable-en.png" : "/timetable.png"} alt="Gaon Taekwondo schedule" onClick={() => setZoomImg(true)} style={{ width: "100%", borderRadius: 10, display: "block", cursor: "zoom-in" }} />
+            <div style={{ textAlign: "center", fontSize: 11, color: C.dim2, marginTop: 7 }}>{lang === "en" ? "Tap to enlarge" : "이미지를 누르면 크게 볼 수 있어요"}</div>
           </Panel>
           <Panel title={t("contactTitle")}>
             <InfoRow k={t("c_phone")} v="010-8984-3725" />
@@ -2411,6 +2413,17 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
       {tab === "events" && !isOut && <ReserveMember data={data} persist={persist} me={me} locked={isPaused} kind="행사" lang={lang} />}
       {tab === "videos" && !isOut && <VideosView data={data} persist={persist} admin={false} lang={lang} />}
       {tab === "mine" && <MineRecord data={data} me={me} lang={lang} />}
+      {zoomImg && (
+        <div onClick={() => setZoomImg(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 100, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 12 }}>
+          <div style={{ width: "100%", display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <button onClick={() => setZoomImg(false)} style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 8, color: C.gold, fontSize: 13, fontWeight: 700, padding: "7px 13px", cursor: "pointer" }}><X size={15} /> {lang === "en" ? "Close" : "닫기"}</button>
+          </div>
+          <div style={{ flex: 1, width: "100%", overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <img src={lang === "en" ? "/timetable-en.png" : "/timetable.png"} alt="schedule" style={{ minWidth: 720, width: "180%", maxWidth: "none", height: "auto", borderRadius: 8 }} />
+          </div>
+          <div style={{ fontSize: 11, color: C.dim2, marginTop: 8 }}>{lang === "en" ? "Scroll to see all · tap outside to close" : "좌우로 밀어서 전체 보기 · 바깥을 누르면 닫힘"}</div>
+        </div>
+      )}
     </>
   );
 }
@@ -2769,8 +2782,9 @@ const Chip = ({ on, color, onClick, children }) => (
     background: on ? color : "transparent", color: on ? "#fff" : C.dim, border: `1px solid ${on ? color : C.line}` }}>{children}</button>
 );
 const InfoRow = ({ k, v, mono }) => (
-  <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.line}`, fontSize: 14 }}>
-    <span style={{ color: C.dim }}>{k}</span><span style={{ fontWeight: 700, fontFamily: mono ? DISP : FONT, letterSpacing: mono ? 1 : 0 }}>{v}</span>
+  <div style={{ display: "flex", justifyContent: "space-between", gap: 14, padding: "10px 0", borderBottom: `1px solid ${C.line}`, fontSize: 14 }}>
+    <span style={{ color: C.dim, flexShrink: 0, whiteSpace: "nowrap" }}>{k}</span>
+    <span style={{ fontWeight: 700, fontFamily: mono ? DISP : FONT, letterSpacing: mono ? 1 : 0, textAlign: "right", wordBreak: "break-word", lineHeight: 1.5, minWidth: 0 }}>{v}</span>
   </div>
 );
 const Center = ({ children }) => <div style={{ background: C.bg, color: C.gold, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT }}>{children}</div>;
