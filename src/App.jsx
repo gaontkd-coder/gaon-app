@@ -149,6 +149,15 @@ const LANG = {
     closedDay: "휴무", videosTitle: "수련 영상", noVideo: "등록된 영상이 없습니다.", all: "전체",
     catPoomsae: "품새", catKick: "발차기", catSpar: "겨루기", catDemo: "시범", catEtc: "기타",
     recTotal: "누적 수련", recByGroup: "구분별 누적 수련", recMonthly: "월별 수련 기록", recent6: "최근 6개월", career: "경력",
+    cnt: "회", cntItem: "건", myTermSub: "등록 수업별 기간", noRec: "수련 기록이 없습니다.",
+    voucherUsable: (n) => `사용 가능 ${n}장 · 도장에서 보여주세요`, voucherOwned: "보유 상품권",
+    footprint: "나의 발자취", footprintSub: "가온에서 쌓아온 기록", unlimited: "무기한",
+    g_정규: "정규", g_시범단: "시범단", g_겨루기: "겨루기", g_품새: "품새",
+    lockedMsg: "정지중 상태에서는 조회만 가능합니다. 복귀를 원하시면 도장에 문의해 주세요.",
+    holidayMsg: "고정 수업은 쉽니다", holidayMore: " (이 날 따로 열린 수업은 아래에서 신청 가능)",
+    upcomingEv: "다가오는 이벤트", noUpcomingEv: "예정된 이벤트가 없습니다.",
+    weekAll: "주간 전체 보기", noWeekClass: "이번 주에 신청 가능한 수업이 없습니다.",
+    evWord: "이벤트", classWord: "수업", noEvDay: "이 날은 이벤트가 없습니다.", noClassDay2: "이 날은 수업이 없습니다.",
   },
   en: {
     home: "Home", classes: "Classes", events: "Events", videos: "Videos", mine: "My Record",
@@ -175,6 +184,15 @@ const LANG = {
     closedDay: "Closed", videosTitle: "Training Videos", noVideo: "No videos yet.", all: "All",
     catPoomsae: "Poomsae", catKick: "Kicking", catSpar: "Sparring", catDemo: "Demo", catEtc: "Etc",
     recTotal: "Total Sessions", recByGroup: "Sessions by Type", recMonthly: "Monthly Record", recent6: "Last 6 months", career: "Career",
+    cnt: "", cntItem: "", myTermSub: "Period by class", noRec: "No training records yet.",
+    voucherUsable: (n) => `${n} usable · show at the studio`, voucherOwned: "My Vouchers",
+    footprint: "My Journey", footprintSub: "Milestones at Gaon", unlimited: "No expiry",
+    g_정규: "Regular", g_시범단: "Demo", g_겨루기: "Sparring", g_품새: "Poomsae",
+    lockedMsg: "Viewing only while paused. Please contact the studio to return.",
+    holidayMsg: "Regular classes are closed", holidayMore: " (classes opened for this day can be booked below)",
+    upcomingEv: "Upcoming Events", noUpcomingEv: "No upcoming events.",
+    weekAll: "Weekly View", noWeekClass: "No bookable classes this week.",
+    evWord: "Events", classWord: "Classes", noEvDay: "No events on this day.", noClassDay2: "No classes on this day.",
   },
 };
 // 요일 영문
@@ -979,33 +997,35 @@ function OperationsView({ data }) {
 
 // ── 회원 수련 기록 (구분별 누적 + 월별) — 수련자/운영 공용 ──
 const GROUP_COLOR = { 정규: "#d8b45a", 시범단: "#d8693f", 겨루기: "#4d82d8", 품새: "#3fb08c" };
-function MemberTrainRecord({ data, mid }) {
+function MemberTrainRecord({ data, mid, lang = "ko" }) {
+  const t = (k) => (LANG[lang] || LANG.ko)[k];
+  const gName = (g) => t(`g_${g}`) || g;
   const groups = ATT_GROUPS.map((g) => ({ g, n: trainByGroup(data, mid, g) })).filter((x) => x.n > 0);
   const months = recentMonths(6);
   const monthRows = months.map((m) => ({ m, total: trainMonth(data, mid, m), parts: ATT_GROUPS.map((g) => ({ g, n: trainGroupMonth(data, mid, g, m) })).filter((x) => x.n > 0) })).filter((x) => x.total > 0);
   return (
     <>
       {groups.length > 0 && (
-        <Panel title="구분별 누적 수련">
+        <Panel title={t("recByGroup")}>
           {groups.map(({ g, n }) => (
             <div key={g} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: GROUP_COLOR[g] }} />
-              <span style={{ fontSize: 14, flex: 1 }}>{g} 수련</span>
-              <span style={{ fontFamily: DISP, fontWeight: 700, color: C.gold }}>{n}회</span>
+              <span style={{ fontSize: 14, flex: 1 }}>{gName(g)}{lang === "en" ? "" : " 수련"}</span>
+              <span style={{ fontFamily: DISP, fontWeight: 700, color: C.gold }}>{n}{lang === "en" ? "" : "회"}</span>
             </div>
           ))}
         </Panel>
       )}
-      <Panel title="월별 수련 기록" sub="최근 6개월">
-        {monthRows.length === 0 ? <Empty>수련 기록이 없습니다.</Empty> : monthRows.map(({ m, total, parts }) => (
+      <Panel title={t("recMonthly")} sub={t("recent6")}>
+        {monthRows.length === 0 ? <Empty>{t("noRec")}</Empty> : monthRows.map(({ m, total, parts }) => (
           <div key={m} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
             <div style={{ display: "flex", alignItems: "center" }}>
-              <span style={{ fontWeight: 700, fontFamily: DISP }}>{m.slice(0, 4)}년 {Number(m.slice(5))}월</span>
-              <span style={{ marginLeft: "auto", fontFamily: DISP, fontWeight: 700, color: C.gold }}>{total}회</span>
+              <span style={{ fontWeight: 700, fontFamily: DISP }}>{lang === "en" ? m : `${m.slice(0, 4)}년 ${Number(m.slice(5))}월`}</span>
+              <span style={{ marginLeft: "auto", fontFamily: DISP, fontWeight: 700, color: C.gold }}>{total}{lang === "en" ? "" : "회"}</span>
             </div>
             {parts.length > 0 && (
               <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
-                {parts.map(({ g, n }) => <span key={g} style={{ fontSize: 11, color: "#fff", background: GROUP_COLOR[g], borderRadius: 5, padding: "2px 8px" }}>{g} {n}</span>)}
+                {parts.map(({ g, n }) => <span key={g} style={{ fontSize: 11, color: "#fff", background: GROUP_COLOR[g], borderRadius: 5, padding: "2px 8px" }}>{gName(g)} {n}</span>)}
               </div>
             )}
           </div>
@@ -1741,7 +1761,10 @@ function NoticeAdmin({ data, persist, canEdit = true }) {
 }
 
 // ── 수련 영상 (유튜브) ──
-function VideosView({ data, persist, admin, onBack }) {
+function VideosView({ data, persist, admin, onBack, lang = "ko" }) {
+  const t = (k) => (LANG[lang] || LANG.ko)[k];
+  const CAT_EN = { "품새": "Poomsae", "발차기": "Kicking", "겨루기": "Sparring", "시범": "Demo", "기타": "Etc" };
+  const catLabel = (c) => lang === "en" ? (c === "전체" ? t("all") : (CAT_EN[c] || c)) : c;
   const [edit, setEdit] = useState(null);
   const [cat, setCat] = useState("전체");
   const videos = data.videos || [];
@@ -1756,17 +1779,17 @@ function VideosView({ data, persist, admin, onBack }) {
 
   return (
     <div>
-      {onBack && <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> 홈</button>}
+      {onBack && <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> {t("home")}</button>}
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
-        <span style={{ fontSize: 16, fontWeight: 800 }}>수련 영상</span>
+        <span style={{ fontSize: 16, fontWeight: 800 }}>{t("videosTitle")}</span>
         {admin && <button onClick={() => setEdit({ cat: "품새", title: "", url: "", desc: "" })} style={{ ...btnGold, marginLeft: "auto", padding: "8px 13px" }}><Plus size={15} /> 영상 추가</button>}
       </div>
       <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
         {["전체", ...VIDEO_CATS].map((c) => (
-          <button key={c} onClick={() => setCat(c)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${cat === c ? "transparent" : C.line}`, background: cat === c ? C.goldGrad : "transparent", color: cat === c ? "#1a1305" : C.dim, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{c}</button>
+          <button key={c} onClick={() => setCat(c)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${cat === c ? "transparent" : C.line}`, background: cat === c ? C.goldGrad : "transparent", color: cat === c ? "#1a1305" : C.dim, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{catLabel(c)}</button>
         ))}
       </div>
-      {shown.length === 0 ? <Empty>등록된 영상이 없습니다.</Empty> : shown.map((v) => {
+      {shown.length === 0 ? <Empty>{t("noVideo")}</Empty> : shown.map((v) => {
         const id = ytId(v.url);
         return (
           <div key={v.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", marginBottom: 14 }}>
@@ -1777,7 +1800,7 @@ function VideosView({ data, persist, admin, onBack }) {
             ) : <div style={{ padding: 20, fontSize: 12, color: "#e58282", textAlign: "center" }}>유튜브 링크를 확인해 주세요</div>}
             <div style={{ padding: "12px 14px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#1a1305", background: C.gold, borderRadius: 5, padding: "2px 7px" }}>{v.cat}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#1a1305", background: C.gold, borderRadius: 5, padding: "2px 7px" }}>{catLabel(v.cat)}</span>
                 <span style={{ fontWeight: 700, flex: 1 }}>{v.title}</span>
                 {admin && <><button onClick={() => setEdit(v)} style={iconBtn}><Pencil size={14} /></button><button onClick={() => remove(v.id)} style={iconBtn}><Trash2 size={14} /></button></>}
               </div>
@@ -2457,29 +2480,29 @@ function ReserveMember({ data, persist, me, locked, kind, lang = "ko" }) {
   const dayClosed = selected && isClosed(data.holidays, selected) && kind !== "행사";
   return (
     <div>
-      {locked && <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#241f12", border: `1px solid #5a4a22`, borderRadius: 12, padding: "13px 15px", marginBottom: 16, fontSize: 13, color: "#dcc89a" }}><Lock size={16} /> 정지중 상태에서는 조회만 가능합니다. 복귀를 원하시면 도장에 문의해 주세요.</div>}
+      {locked && <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#241f12", border: `1px solid #5a4a22`, borderRadius: 12, padding: "13px 15px", marginBottom: 16, fontSize: 13, color: "#dcc89a" }}><Lock size={16} /> {t("lockedMsg")}</div>}
 
       <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{ kind, me, holidays: data.holidays }} selected={selected} onSelect={setSelected} />
-      {dayClosed && <div style={{ background: "#2a1414", border: "1px solid #5a2222", borderRadius: 12, padding: "12px 15px", margin: "14px 0 0", fontSize: 13, color: "#e0a0a0", fontWeight: 700 }}>🚫 {data.holidays[selected].reason || "휴무"} · 고정 수업은 쉽니다{dayItems.length > 0 ? " (이 날 따로 열린 수업은 아래에서 신청 가능)" : ""}</div>}
+      {dayClosed && <div style={{ background: "#2a1414", border: "1px solid #5a2222", borderRadius: 12, padding: "12px 15px", margin: "14px 0 0", fontSize: 13, color: "#e0a0a0", fontWeight: 700 }}>🚫 {data.holidays[selected].reason || t("closedDay")} · {t("holidayMsg")}{dayItems.length > 0 ? t("holidayMore") : ""}</div>}
 
       {selected && (
         <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginBottom: 10 }}>{selected.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(selected)]}) {kind === "행사" ? "이벤트" : "수업"}</div>
-          {dayItems.length === 0 ? <Empty>이 날은 {kind === "행사" ? "이벤트가" : "수업이"} 없습니다.</Empty> : dayItems.map((c) => renderCard(c, selected))}
+          <div style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginBottom: 10 }}>{lang === "en" ? `${DW[dowOf(selected)]} ${selected.slice(5).replace("-", "/")} · ${kind === "행사" ? t("evWord") : t("classWord")}` : `${selected.slice(5).replace("-", "월 ")}일 (${DAYS[dowOf(selected)]}) ${kind === "행사" ? "이벤트" : "수업"}`}</div>
+          {dayItems.length === 0 ? <Empty>{kind === "행사" ? t("noEvDay") : t("noClassDay2")}</Empty> : dayItems.map((c) => renderCard(c, selected))}
         </div>
       )}
 
       <div style={{ height: 1, background: C.line, margin: "18px 0 16px" }} />
       {isEv ? (
         <>
-          <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>다가오는 이벤트</div>
-          {items.length === 0 ? <Empty>예정된 이벤트가 없습니다.</Empty> : items.map(({ c, date }) => renderCard(c, date))}
+          <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>{t("upcomingEv")}</div>
+          {items.length === 0 ? <Empty>{t("noUpcomingEv")}</Empty> : items.map(({ c, date }) => renderCard(c, date))}
         </>
       ) : (
         <>
-          <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>주간 전체 보기</div>
+          <div style={{ fontSize: 12, color: C.dim2, marginBottom: 12 }}>{t("weekAll")}</div>
           <WeekNav base={base} setBase={setBase} week={week} />
-          {items.length === 0 ? <Empty>이번 주에 신청 가능한 수업이 없습니다.</Empty> : items.map(({ c, date }) => renderCard(c, date))}
+          {items.length === 0 ? <Empty>{t("noWeekClass")}</Empty> : items.map(({ c, date }) => renderCard(c, date))}
         </>
       )}
       {applyFor && <ApplyModal event={applyFor.c} onSubmit={(ans) => submitApply(applyFor.c, applyFor.date, ans)} onClose={() => setApplyFor(null)} />}
@@ -2502,7 +2525,8 @@ function ApplyModal({ event, onSubmit, onClose }) {
   );
 }
 
-function MineRecord({ data, me }) {
+function MineRecord({ data, me, lang = "ko" }) {
+  const t = (k) => (LANG[lang] || LANG.ko)[k];
   const total = trainTotal(data, me.id), month = trainMonth(data, me.id);
   const rows = [];
   Object.entries(data.reservations).forEach(([date, byClass]) => Object.entries(byClass).forEach(([cid, ids]) => {
@@ -2512,27 +2536,27 @@ function MineRecord({ data, me }) {
   return (
     <div>
       <Grid3>
-        <Stat label="누적 수련" value={total} unit="회" accent />
-        <Stat label="이번달" value={month} unit="회" />
-        <Stat label="경력" value={(me.history || []).length} unit="건" />
+        <Stat label={t("recTotal")} value={total} unit={t("cnt")} accent />
+        <Stat label={t("thisMonth")} value={month} unit={t("cnt")} />
+        <Stat label={t("career")} value={(me.history || []).length} unit={t("cntItem")} />
       </Grid3>
 
       {(() => {
         const months = recentMonths(6);
         const hasRec = months.some((m) => trainMonth(data, me.id, m) > 0);
-        return hasRec ? <MemberTrainRecord data={data} mid={me.id} /> : null;
+        return hasRec ? <MemberTrainRecord data={data} mid={me.id} lang={lang} /> : null;
       })()}
 
       {(me.enrollments || []).length > 0 && (
-        <Panel title="내 수강권" sub="등록 수업별 기간">
+        <Panel title={t("myTerm")} sub={t("myTermSub")}>
           {(me.enrollments || []).map((k) => {
-            const t = me.terms?.[k] || {}; const st = termStatus(t);
+            const tm = me.terms?.[k] || {}; const st = termStatus(tm);
             return (
               <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: tColor(k), borderRadius: 5, padding: "3px 8px" }}>{k}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: tColor(k), borderRadius: 5, padding: "3px 8px" }}>{trTarget(k, lang)}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: C.dim }}>{t.start ? `${t.start} 시작` : "시작일 미설정"}{t.period ? ` · ${t.period}` : ""}</div>
-                  <div style={{ fontSize: 12, color: C.dim2, marginTop: 2 }}>{t.expiry ? `${t.expiry}까지` : "기간 미설정"}</div>
+                  <div style={{ fontSize: 12, color: C.dim }}>{tm.start ? (lang === "en" ? `From ${tm.start}` : `${tm.start} 시작`) : (lang === "en" ? "Start date not set" : "시작일 미설정")}{tm.period ? ` · ${tm.period}` : ""}</div>
+                  <div style={{ fontSize: 12, color: C.dim2, marginTop: 2 }}>{tm.expiry ? (lang === "en" ? `Until ${tm.expiry}` : `${tm.expiry}까지`) : (lang === "en" ? "Period not set" : "기간 미설정")}</div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 800, color: st.color }}>{st.label}</span>
               </div>
@@ -2546,7 +2570,7 @@ function MineRecord({ data, me }) {
         if (vs.length === 0) return null;
         const usable = vs.filter((v) => voucherState(v) === "사용가능");
         return (
-          <Panel title="내 상품권" sub={usable.length > 0 ? `사용 가능 ${usable.length}장 · 도장에서 보여주세요` : "보유 상품권"}>
+          <Panel title={t("myVoucher")} sub={usable.length > 0 ? t("voucherUsable")(usable.length) : t("voucherOwned")}>
             {vs.slice().reverse().map((v) => {
               const st = voucherState(v);
               const usable = st === "사용가능";
@@ -2558,7 +2582,7 @@ function MineRecord({ data, me }) {
                     <span style={{ marginLeft: "auto", fontSize: 10, color: "#0b0b0e", background: voucherColor(st), borderRadius: 5, padding: "2px 7px", fontWeight: 700 }}>{st}</span>
                   </div>
                   {v.desc && <div style={{ fontSize: 13, color: "#dadae0", marginTop: 7, lineHeight: 1.5 }}>{v.desc}</div>}
-                  <div style={{ fontSize: 11, color: C.dim2, marginTop: 7, fontFamily: DISP }}>{v.expiry ? `유효기간 ~${v.expiry}` : "무기한"}{v.usedAt ? ` · 사용완료 ${v.usedAt}` : ""}</div>
+                  <div style={{ fontSize: 11, color: C.dim2, marginTop: 7, fontFamily: DISP }}>{v.expiry ? (lang === "en" ? `Valid ~${v.expiry}` : `유효기간 ~${v.expiry}`) : t("unlimited")}{v.usedAt ? (lang === "en" ? ` · used ${v.usedAt}` : ` · 사용완료 ${v.usedAt}`) : ""}</div>
                 </div>
               );
             })}
@@ -2566,7 +2590,7 @@ function MineRecord({ data, me }) {
         );
       })()}
       {(me.history || []).length > 0 && (
-        <Panel title="나의 발자취" sub="가온에서 쌓아온 기록">
+        <Panel title={t("footprint")} sub={t("footprintSub")}>
           {[...me.history].sort((a, b) => a.date.localeCompare(b.date)).map((h, i, arr) => {
             const { color, Icon } = HCAT[h.category] || HCAT["기타"];
             return (
