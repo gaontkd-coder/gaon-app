@@ -673,7 +673,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
       {tab === "dashboard" && <Dashboard data={data} wide={wide} setTab={setTab} role={admin.role} admin={admin} />}
       {tab === "classes" && <ClassesAdmin data={data} persist={persist} kind="수업" canEdit={can(admin.role, "classes")} canHoliday={can(admin.role, "holiday")} />}
       {tab === "attend" && <ReserveAdmin data={data} persist={persist} />}
-      {tab === "members" && <MembersAdmin data={data} persist={persist} canEdit={can(admin.role, "members")} />}
+      {tab === "members" && <MembersAdmin data={data} persist={persist} canEdit={can(admin.role, "members")} canFinance={can(admin.role, "finance")} />}
       {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" canEdit={can(admin.role, "classes")} />}
       {tab === "videos" && <VideosView data={data} persist={persist} admin={can(admin.role, "classes")} />}
       {tab === "notice" && <NoticeAdmin data={data} persist={persist} canEdit={can(admin.role, "notice")} />}
@@ -1118,7 +1118,8 @@ function TeamDetail({ data, team, unit, setUnit, onBack }) {
   );
 }
 
-function MembersAdmin({ data, persist, canEdit = true }) {
+function MembersAdmin({ data, persist, canEdit = true, canFinance = false }) {
+  const [payFor, setPayFor] = useState(null);
   const [q, setQ] = useState(""); const [edit, setEdit] = useState(null); const [hist, setHist] = useState(null);
   const [vouchMember, setVouchMember] = useState(null);
   const [gFilter, setGFilter] = useState("전체");
@@ -1212,6 +1213,7 @@ function MembersAdmin({ data, persist, canEdit = true }) {
               )}
               <div style={{ display: "flex", gap: 6, marginTop: 11 }}>
                 <button onClick={() => setHist(m)} style={actBtn}><Award size={14} /> 경력</button>
+                {canFinance && <button onClick={() => setPayFor(m)} style={{ ...actBtn, color: "#3fa86a", borderColor: "#2a5a3e" }}><Ticket size={14} /> 결제</button>}
                 {canEdit && <button onClick={() => setVouchMember(m)} style={{ ...actBtn, color: C.gold, borderColor: "#5a4a22" }}><Ticket size={14} /> 상품권</button>}
                 {canEdit && <button onClick={() => setEdit(m)} style={actBtn}><Pencil size={14} /> 수정</button>}
                 {canEdit && <button onClick={() => remove(m.id)} style={actBtn}><Trash2 size={14} /> 삭제</button>}
@@ -1223,6 +1225,7 @@ function MembersAdmin({ data, persist, canEdit = true }) {
       {edit && <MemberForm member={edit} previewNo={edit.id ? edit.no : nextNo()} teamDays={data.teamDays} onSave={save} onClose={() => setEdit(null)} />}
       {hist && <HistoryManager member={hist} onSave={(mem) => { save(mem); setHist(null); }} onClose={() => setHist(null)} />}
       {vouchMember && <MemberVoucherModal data={data} persist={persist} member={data.members.find((x) => x.id === vouchMember.id) || vouchMember} onClose={() => setVouchMember(null)} />}
+      {payFor && <PaymentModal data={data} persist={persist} member={payFor} onClose={() => setPayFor(null)} />}
     </div>
   );
 }
@@ -1868,6 +1871,94 @@ function VideosView({ data, persist, admin, onBack, lang = "ko" }) {
 
 // ═══════════ 재무 (관장 전용) ═══════════
 const won = (n) => (n || 0).toLocaleString("ko-KR");
+
+// 결제/등록 모달 — 가격 자동 계산 + 추가항목 + 재무 자동 기록
+function PaymentModal({ data, persist, member, onClose }) {
+  const p = data.pricing || DEFAULT_PRICING;
+  const [kind, setKind] = useState("정규반"); // 정규반 | 팀 | 기타
+  const [isNew, setIsNew] = useState(false); // 신규/기존
+  const [ses, setSes] = useState("오후");
+  const [period, setPeriod] = useState("1개월");
+  const [teamType, setTeamType] = useState("내부");
+  const [extras, setExtras] = useState({}); // id → bool
+  const [memo, setMemo] = useState("");
+  const [discount, setDiscount] = useState(0);
+
+  // 기본 수강료 계산
+  let base = 0, baseLabel = "";
+  if (kind === "정규반") {
+    if (period === "1개월") { base = p.reg1[ses]; }
+    else { base = (isNew ? p.newReg : p.oldReg)[period][ses]; }
+    baseLabel = `정규반 ${ses} ${period}`;
+  } else if (kind === "팀") {
+    base = p.team[teamType]; baseLabel = `전문팀 ${teamType} (월)`;
+  }
+  const extraList = p.extras.filter((e) => extras[e.id]);
+  const extraSum = extraList.reduce((s, e) => s + e.price, 0);
+  const total = Math.max(0, base + extraSum - (Number(discount) || 0));
+
+  const submit = () => {
+    if (total <= 0 && extraList.length === 0) { alert("결제 항목을 선택해 주세요."); return; }
+    const parts = [];
+    if (kind !== "기타") parts.push(baseLabel);
+    if (extraList.length) parts.push(extraList.map((e) => e.name).join("+"));
+    const autoMemo = `${member.name} · ${parts.join(" + ")}${isNew && kind === "정규반" ? " (신규)" : ""}${memo ? " · " + memo : ""}`;
+    const rec = { id: Date.now(), type: "수입", date: todayStr(), cat: kind === "팀" ? "팀비" : kind === "기타" ? "기타수입" : "수강료", amount: total, memo: autoMemo, memberId: member.id };
+    persist({ ...data, finance: [...(data.finance || []), rec] });
+    onClose();
+  };
+
+  const chipRow = (opts, val, set) => (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+      {opts.map((o) => <Chip key={o} on={val === o} color={C.gold} onClick={() => set(o)}>{o}</Chip>)}
+    </div>
+  );
+
+  return (
+    <Modal title={`${member.name} 결제 / 등록`} onClose={onClose}>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14 }}>결제하면 재무 장부에 수입으로 자동 기록됩니다.</div>
+
+      <Field label="등록 종류">{chipRow(["정규반", "팀", "기타"], kind, setKind)}</Field>
+
+      {kind === "정규반" && (
+        <>
+          <Field label="회원 구분">{chipRow(["기존", "신규"], isNew ? "신규" : "기존", (v) => setIsNew(v === "신규"))}</Field>
+          <Field label="반">{chipRow(["오전", "오후", "통합"], ses, setSes)}</Field>
+          <Field label="기간">{chipRow(["1개월", "3개월", "6개월", "1년"], period, setPeriod)}</Field>
+        </>
+      )}
+      {kind === "팀" && <Field label="팀 구분">{chipRow(["내부", "외부", "지도진", "체험"], teamType, setTeamType)}</Field>}
+
+      <Field label="추가 항목 (선택)">
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          {p.extras.map((e) => (
+            <label key={e.id} style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", fontSize: 13 }}>
+              <input type="checkbox" checked={!!extras[e.id]} onChange={(ev) => setExtras({ ...extras, [e.id]: ev.target.checked })} style={{ width: 16, height: 16, accentColor: C.gold }} />
+              <span style={{ flex: 1 }}>{e.name}</span>
+              <span style={{ fontFamily: DISP, color: C.dim }}>{won(e.price)}</span>
+            </label>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="할인 (원, 선택)"><input type="number" style={inp} value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0" /></Field>
+      <Field label="혜택·메모 (선택)"><input style={inp} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="예: 6개월 등록 도복 증정, 사물함 6개월" /></Field>
+
+      <div style={{ background: "#181206", border: `1px solid ${C.gold}`, borderRadius: 12, padding: "14px 16px", margin: "8px 0 16px" }}>
+        {kind !== "기타" && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.dim, marginBottom: 5 }}><span>{baseLabel}</span><span style={{ fontFamily: DISP }}>{won(base)}</span></div>}
+        {extraList.map((e) => <div key={e.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.dim, marginBottom: 5 }}><span>{e.name}</span><span style={{ fontFamily: DISP }}>{won(e.price)}</span></div>)}
+        {Number(discount) > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#e0726a", marginBottom: 5 }}><span>할인</span><span style={{ fontFamily: DISP }}>−{won(Number(discount))}</span></div>}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.line}`, paddingTop: 9, marginTop: 4 }}>
+          <span style={{ fontWeight: 700, color: C.gold }}>총 결제액</span>
+          <span style={{ fontFamily: DISP, fontWeight: 800, fontSize: 22, color: C.gold }}>{won(total)}<span style={{ fontSize: 12, fontFamily: FONT }}>원</span></span>
+        </div>
+      </div>
+
+      <button onClick={submit} style={{ ...btnGold, width: "100%", justifyContent: "center" }}><Check size={16} /> 결제 기록</button>
+    </Modal>
+  );
+}
+
 const FIN_CATS_IN = ["수강료", "팀비", "도복", "심사", "사물함", "쿠폰", "입관비", "기타수입"];
 const FIN_CATS_OUT = ["임대료", "인건비", "공과금", "용품구입", "마케팅", "기타지출"];
 
