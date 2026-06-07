@@ -1421,7 +1421,8 @@ function ClassesAdmin({ data, persist, kind, canEdit = true, canHoliday = true }
   const [holiCfg, setHoliCfg] = useState(false);
   const [view, setView] = useState("main"); // main | reserve (수업탭) / list | vouchers (이벤트탭)
   const [monthBase, setMonthBase] = useState(new Date().toISOString().slice(0, 10));
-  const [selDate, setSelDate] = useState(null);
+  const [selDate, setSelDate] = useState(kind === "행사" ? null : todayStr());
+  const [showAll, setShowAll] = useState(false);
   const isEvent = kind === "행사";
   const names = isEvent ? EVENT_NAMES : LESSON_NAMES;
   const save = (c) => {
@@ -1521,10 +1522,16 @@ function ClassesAdmin({ data, persist, kind, canEdit = true, canHoliday = true }
           </div>
         );
       })()}
-      <GroupLabel color="#d8693f">전문팀 수업 ({teams.length})</GroupLabel>
-      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden", marginBottom: 18 }}>{teams.length ? teams.map(card) : <Empty>전문팀 수업이 없습니다.</Empty>}</div>
-      <GroupLabel color={C.gold}>정규반 수업 ({regs.length})</GroupLabel>
-      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>{regs.length ? regs.map(card) : <Empty>정규반 수업이 없습니다.</Empty>}</div>
+      {!selDate && <Empty>달력에서 날짜를 선택하면 그날 수업이 표시됩니다.</Empty>}
+      <button onClick={() => setShowAll((v) => !v)} style={{ ...pill, width: "100%", justifyContent: "center", padding: "10px 0", color: C.dim, borderColor: C.line, marginTop: 4 }}>{showAll ? "전체 수업 목록 닫기 ▲" : "개설된 전체 수업 보기 ▼"}</button>
+      {showAll && (
+        <div style={{ marginTop: 14 }}>
+          <GroupLabel color="#d8693f">전문팀 수업 ({teams.length})</GroupLabel>
+          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden", marginBottom: 18 }}>{teams.length ? teams.map(card) : <Empty>전문팀 수업이 없습니다.</Empty>}</div>
+          <GroupLabel color={C.gold}>정규반 수업 ({regs.length})</GroupLabel>
+          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>{regs.length ? regs.map(card) : <Empty>정규반 수업이 없습니다.</Empty>}</div>
+        </div>
+      )}
       {edit && <ClassForm cls={edit} names={names} onSave={save} onClose={() => setEdit(null)} />}
       {teamCfg && <TeamDaysModal data={data} persist={persist} onClose={() => setTeamCfg(false)} />}
       {holiCfg && <HolidayModal data={data} persist={persist} onClose={() => setHoliCfg(false)} />}
