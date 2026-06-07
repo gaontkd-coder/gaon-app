@@ -327,9 +327,11 @@ function useWide() {
 }
 
 // 수업이 해당 주에 열리는 날짜 (매주=요일, 특정날짜=그 주에 포함될 때만)
+// week는 월요일 시작 배열(week[0]=월…week[6]=일), c.day는 일0~토6 → 변환 필요
 function classDateInWeek(c, week) {
   if (c.type === "once") return week.includes(c.date) ? c.date : null;
-  return week[c.day];
+  const idx = (c.day + 6) % 7; // 일(0)→6, 월(1)→0, 화(2)→1 … 토(6)→5
+  return week[idx];
 }
 const dowOf = (date) => new Date(date + "T00:00:00").getDay();
 
