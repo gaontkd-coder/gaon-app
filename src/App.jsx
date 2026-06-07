@@ -94,6 +94,7 @@ const PERM = {
   schedule: ["director", "vice", "senior"],
   holiday: ["director", "vice", "senior"],
   finance: ["director"],
+  locker: ["director"],
 };
 const can = (role, key) => (PERM[key] || []).includes(role);
 // 휴무 판정: 전체 휴무(only 없음) 또는 특정 수업만 휴무(only에 포함)
@@ -430,6 +431,7 @@ function normalize(d) {
   if (!d.pricing) d.pricing = { ...DEFAULT_PRICING };
   if (!d.finance) d.finance = [];
   if (!d.salaries) d.salaries = {};
+  if (!d.lockers) d.lockers = {};
   if (!d.teamDays) d.teamDays = { ...DEFAULT_TEAM_DAYS };
   d.members = (d.members || []).map((m) => {
     const e = m.enrollments || [...(m.session ? [m.session] : []), ...(m.team && m.team !== "없음" ? [m.team] : [])];
@@ -660,6 +662,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
     ["dashboard", "대시보드", LayoutDashboard],
     ["classes", "수업", BookOpen],
     ["attend", "출석부", ClipboardList],
+    ...(can(admin.role, "locker") ? [["locker", "사물함", KeyRound]] : []),
     ["members", "회원", Users],
     ["events", "이벤트", Trophy],
     ["videos", "영상", Video],
@@ -674,6 +677,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
       {tab === "dashboard" && <Dashboard data={data} wide={wide} setTab={setTab} role={admin.role} admin={admin} />}
       {tab === "classes" && <ClassesAdmin data={data} persist={persist} kind="수업" canEdit={can(admin.role, "classes")} canHoliday={can(admin.role, "holiday")} />}
       {tab === "attend" && <ReserveAdmin data={data} persist={persist} />}
+      {tab === "locker" && can(admin.role, "locker") && <LockerView data={data} persist={persist} />}
       {tab === "members" && <MembersAdmin data={data} persist={persist} canEdit={can(admin.role, "members")} canFinance={can(admin.role, "finance")} />}
       {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" canEdit={can(admin.role, "classes")} />}
       {tab === "videos" && <VideosView data={data} persist={persist} admin={can(admin.role, "classes")} />}
@@ -735,7 +739,12 @@ function Dashboard({ data, wide, setTab, role, admin }) {
     { id: "members", label: "회원 관리", sub: "명단 · 수강권 · 상품권", Ic: Users },
     { id: "classes", label: "수업", sub: "시간표 · 수업 개설", Ic: BookOpen },
     { id: "attend", label: "출석부", sub: "오늘 수업 출석 체크", Ic: ClipboardList },
+    { id: "locker", label: "개인 사물함", sub: can(role, "locker") ? "1~65번 · 기간 · 비밀번호" : "관장 전용", Ic: KeyRound, lock: !can(role, "locker") },
   ];
+  const goTab = (id) => {
+    if (id === "locker" && !can(role, "locker")) { alert("사물함 관리는 관장만 확인할 수 있습니다."); return; }
+    setTab(id);
+  };
   const small = [
     { id: "events", label: "이벤트", Ic: Trophy },
     { id: "videos", label: "수련 영상", Ic: Video },
@@ -763,16 +772,16 @@ function Dashboard({ data, wide, setTab, role, admin }) {
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-        {big.map(({ id, label, sub, Ic }, i) => (
-          <button key={id} onClick={() => setTab(id)} style={{ gridColumn: i === 2 ? "span 2" : "auto", textAlign: "left", background: "linear-gradient(135deg,#2a2410,#14140f)", border: "1px solid #5a4a22", borderRadius: 16, padding: 15, minHeight: 92, display: "flex", flexDirection: "column", justifyContent: "space-between", cursor: "pointer" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}><Ic size={23} color={C.gold} /><ChevronRight size={17} color="#8a7340" /></div>
+        {big.map(({ id, label, sub, Ic, lock }) => (
+          <button key={id} onClick={() => goTab(id)} style={{ textAlign: "left", background: "linear-gradient(135deg,#2a2410,#14140f)", border: "1px solid #5a4a22", borderRadius: 16, padding: 15, minHeight: 92, display: "flex", flexDirection: "column", justifyContent: "space-between", cursor: "pointer", opacity: lock ? 0.7 : 1 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}><Ic size={23} color={C.gold} />{lock ? <Lock size={15} color="#8a7340" /> : <ChevronRight size={17} color="#8a7340" />}</div>
             <div><div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{label}</div><div style={{ fontSize: 10, color: C.dim2, marginTop: 2 }}>{sub}</div></div>
           </button>
         ))}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 9, marginBottom: 20 }}>
         {small.map(({ id, label, Ic }) => (
-          <button key={id} onClick={() => setTab(id)} style={{ position: "relative", textAlign: "left", background: "linear-gradient(135deg,#1c1709,#13110c)", border: "1px solid #4a3d1c", borderRadius: 14, padding: "13px 12px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 9, minHeight: 70 }}>
+          <button key={id} onClick={() => goTab(id)} style={{ position: "relative", textAlign: "left", background: "linear-gradient(135deg,#1c1709,#13110c)", border: "1px solid #4a3d1c", borderRadius: 14, padding: "13px 12px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 9, minHeight: 70 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ width: 32, height: 32, borderRadius: 9, background: "rgba(216,180,90,0.14)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic size={17} color={C.gold} /></div>
               <ChevronRight size={15} color="#7a6a3a" />
@@ -1865,6 +1874,65 @@ function VideosView({ data, persist, admin, onBack, lang = "ko" }) {
           <Field label="유튜브 링크"><input style={inp} value={edit.url} onChange={(e) => setEdit({ ...edit, url: e.target.value })} placeholder="https://youtube.com/watch?v=..." /><div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>유튜브 영상 주소를 그대로 붙여넣으세요. {edit.url && (ytId(edit.url) ? "✓ 인식됨" : "✗ 링크 확인 필요")}</div></Field>
           <Field label="설명 (선택)"><textarea style={{ ...inp, minHeight: 60, resize: "vertical" }} value={edit.desc} onChange={(e) => setEdit({ ...edit, desc: e.target.value })} /></Field>
           <button disabled={!edit.title.trim() || !ytId(edit.url)} onClick={() => save(edit)} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8, opacity: (edit.title.trim() && ytId(edit.url)) ? 1 : 0.4 }}><Check size={16} /> 저장</button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ═══════════ 개인 사물함 (관장 전용) ═══════════
+function LockerView({ data, persist }) {
+  const [edit, setEdit] = useState(null); // {no, name, start, expiry, pw}
+  const lockers = data.lockers || {};
+  const used = Object.values(lockers).filter((l) => l && l.name).length;
+
+  const save = () => {
+    const next = { ...lockers };
+    if (!edit.name && !edit.pw && !edit.start && !edit.expiry) delete next[edit.no];
+    else next[edit.no] = { name: edit.name || "", start: edit.start || "", expiry: edit.expiry || "", pw: edit.pw || "" };
+    persist({ ...data, lockers: next }); setEdit(null);
+  };
+  const clear = () => { const next = { ...lockers }; delete next[edit.no]; persist({ ...data, lockers: next }); setEdit(null); };
+
+  const isExpired = (l) => l?.expiry && l.expiry < todayStr();
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
+        <span style={{ fontSize: 17, fontWeight: 800 }}>개인 사물함</span>
+        <span style={{ fontSize: 11, color: C.dim2, marginLeft: 8 }}>· 관장 전용</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.dim }}>사용 {used} / 65</span>
+      </div>
+      <div style={{ fontSize: 11, color: C.dim2, marginBottom: 14 }}>칸을 누르면 회원·기간·비밀번호를 입력/수정할 수 있어요. 비우려면 내용을 지우고 저장하세요.</div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 7 }}>
+        {Array.from({ length: 65 }, (_, i) => i + 1).map((no) => {
+          const l = lockers[no];
+          const filled = l && l.name;
+          const expired = isExpired(l);
+          return (
+            <button key={no} onClick={() => setEdit({ no, name: l?.name || "", start: l?.start || "", expiry: l?.expiry || "", pw: l?.pw || "" })}
+              style={{ aspectRatio: "1", borderRadius: 10, border: `1px solid ${expired ? "#a23b3b" : filled ? C.gold : C.line}`, background: filled ? (expired ? "#2a1414" : "#181206") : C.card, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: 2 }}>
+              <span style={{ fontFamily: DISP, fontWeight: 700, fontSize: 15, color: filled ? C.gold : C.dim }}>{no}</span>
+              {filled ? <span style={{ fontSize: 9, color: expired ? "#e0726a" : "#dadae0", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</span>
+                : <span style={{ fontSize: 8, color: C.dim2 }}>비어있음</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {edit && (
+        <Modal title={`${edit.no}번 사물함`} onClose={() => setEdit(null)}>
+          <Field label="사용 회원"><input style={inp} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="회원 이름" autoFocus /></Field>
+          <div style={{ display: "flex", gap: 10 }}>
+            <Field label="시작일"><input type="date" style={inp} value={edit.start} onChange={(e) => setEdit({ ...edit, start: e.target.value })} /></Field>
+            <Field label="만료일"><input type="date" style={inp} value={edit.expiry} onChange={(e) => setEdit({ ...edit, expiry: e.target.value })} /></Field>
+          </div>
+          <Field label="비밀번호"><input style={inp} value={edit.pw} onChange={(e) => setEdit({ ...edit, pw: e.target.value })} placeholder="예: 1234" /></Field>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={clear} style={{ ...pill, flex: 1, justifyContent: "center", padding: "11px 0", color: "#e0726a", borderColor: "#5a2222" }}>비우기</button>
+            <button onClick={save} style={{ ...btnGold, flex: 2, justifyContent: "center" }}><Check size={16} /> 저장</button>
+          </div>
         </Modal>
       )}
     </div>
