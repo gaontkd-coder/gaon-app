@@ -143,6 +143,12 @@ const LANG = {
     inquiry: "문의", viewRecord: "내 기록 보기",
     outMsg: "탈퇴 회원은 도장 정보와 공지만 확인할 수 있습니다. 재등록 문의: 010-8984-3725",
     detail: "자세히 보기",
+    reserve: "예약", reserved: "예약됨", apply: "신청", applied: "신청됨", applyForm: "신청서",
+    ppl: "명", reserveWord: "예약", applyWord: "신청",
+    thisWeek: "이번 주", pickDate: "달력에서 날짜를 선택하세요", noClassDay: "이 날은 수업이 없습니다.",
+    closedDay: "휴무", videosTitle: "수련 영상", noVideo: "등록된 영상이 없습니다.", all: "전체",
+    catPoomsae: "품새", catKick: "발차기", catSpar: "겨루기", catDemo: "시범", catEtc: "기타",
+    recTotal: "누적 수련", recByGroup: "구분별 누적 수련", recMonthly: "월별 수련 기록", recent6: "최근 6개월", career: "경력",
   },
   en: {
     home: "Home", classes: "Classes", events: "Events", videos: "Videos", mine: "My Record",
@@ -163,8 +169,32 @@ const LANG = {
     inquiry: "Contact", viewRecord: "View My Record",
     outMsg: "Withdrawn members can only view studio info and notices. Re-registration: 010-8984-3725",
     detail: "Read more",
+    reserve: "Book", reserved: "Booked", apply: "Apply", applied: "Applied", applyForm: "Form",
+    ppl: "", reserveWord: "booked", applyWord: "applied",
+    thisWeek: "This Week", pickDate: "Select a date on the calendar", noClassDay: "No classes on this day.",
+    closedDay: "Closed", videosTitle: "Training Videos", noVideo: "No videos yet.", all: "All",
+    catPoomsae: "Poomsae", catKick: "Kicking", catSpar: "Sparring", catDemo: "Demo", catEtc: "Etc",
+    recTotal: "Total Sessions", recByGroup: "Sessions by Type", recMonthly: "Monthly Record", recent6: "Last 6 months", career: "Career",
   },
 };
+// 요일 영문
+const DAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// 수업명·종목 영문 매핑 (PPT 기준)
+const NAME_EN = {
+  "종합수련 오전반": "Morning Total Training", "종합수련": "Total Training",
+  "품새": "Poomsae", "발차기": "Kicking", "겨루기": "Sparring", "시범": "Demonstration",
+  "특별수련": "Special Training", "겨루기기초": "Sparring (Basics)", "시범발차기": "Demo Kicking",
+  "태권도 P.T": "Taekwondo P.T", "주말 보충수련": "Weekend Class", "주말반": "Weekend Class",
+  "시범단 훈련": "Demo Team Training", "겨루기팀 훈련": "Sparring Team Training", "품새팀 훈련": "Poomsae Team Training",
+  "휴식 및 개인운동": "Break / Personal", "퇴실": "Closing",
+};
+// 팀/세션 영문 라벨
+const TARGET_EN = {
+  "오전": "Morning", "오후": "Afternoon", "통합": "Combined",
+  "GDT(시범단)": "GDT (Demo)", "GST(겨루기)": "GST (Sparring)", "GPT(품새)": "GPT (Poomsae)",
+};
+const trName = (s, lang) => (lang === "en" ? (NAME_EN[s] || s) : s);
+const trTarget = (s, lang) => (lang === "en" ? (TARGET_EN[s] || s) : s);
 // 유튜브 링크에서 영상 ID 추출
 function ytId(url) {
   if (!url) return "";
@@ -2349,15 +2379,17 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
           {isOut && <p style={{ textAlign: "center", fontSize: 12, color: C.dim2, marginTop: 20 }}>{t("outMsg")}</p>}
         </div>
       )}
-      {tab === "reserve" && !isOut && <ReserveMember data={data} persist={persist} me={me} locked={isPaused} kind="수업" />}
-      {tab === "events" && !isOut && <ReserveMember data={data} persist={persist} me={me} locked={isPaused} kind="행사" />}
-      {tab === "videos" && !isOut && <VideosView data={data} persist={persist} admin={false} />}
-      {tab === "mine" && <MineRecord data={data} me={me} />}
+      {tab === "reserve" && !isOut && <ReserveMember data={data} persist={persist} me={me} locked={isPaused} kind="수업" lang={lang} />}
+      {tab === "events" && !isOut && <ReserveMember data={data} persist={persist} me={me} locked={isPaused} kind="행사" lang={lang} />}
+      {tab === "videos" && !isOut && <VideosView data={data} persist={persist} admin={false} lang={lang} />}
+      {tab === "mine" && <MineRecord data={data} me={me} lang={lang} />}
     </>
   );
 }
 
-function ReserveMember({ data, persist, me, locked, kind }) {
+function ReserveMember({ data, persist, me, locked, kind, lang = "ko" }) {
+  const t = (k) => (LANG[lang] || LANG.ko)[k];
+  const DW = lang === "en" ? DAYS_EN : DAYS;
   const [base, setBase] = useState(new Date().toISOString().slice(0, 10));
   const [monthBase, setMonthBase] = useState(new Date().toISOString().slice(0, 10));
   const [selected, setSelected] = useState(null);
@@ -2402,16 +2434,16 @@ function ReserveMember({ data, persist, me, locked, kind }) {
         <DayBadge day={dow} date={date} color={col} big />
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700 }}>{c.label}</span>
-            {(c.targets || []).map((t) => <span key={t} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(t), borderRadius: 5, padding: "2px 6px" }}>{t}</span>)}
-            {isApply && <span style={{ fontSize: 10, fontWeight: 700, color: C.gold, border: `1px solid ${C.gold}`, borderRadius: 5, padding: "1px 6px" }}>신청서</span>}
+            <span style={{ fontWeight: 700 }}>{trName(c.label, lang)}</span>
+            {(c.targets || []).map((tg) => <span key={tg} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(tg), borderRadius: 5, padding: "2px 6px" }}>{trTarget(tg, lang)}</span>)}
+            {isApply && <span style={{ fontSize: 10, fontWeight: 700, color: C.gold, border: `1px solid ${C.gold}`, borderRadius: 5, padding: "1px 6px" }}>{t("applyForm")}</span>}
           </div>
-          <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>{DAYS[dow]}요일 {c.time} · 현재 {arr.length}명 {isApply ? "신청" : "예약"}</div>
+          <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>{lang === "en" ? `${DW[dow]} ${c.time} · ${arr.length} ${isApply ? t("applyWord") : t("reserveWord")}` : `${DAYS[dow]}요일 ${c.time} · 현재 ${arr.length}명 ${isApply ? "신청" : "예약"}`}</div>
           {c.desc && <div style={{ fontSize: 12, color: C.dim2, marginTop: 4, lineHeight: 1.5 }}>{c.desc}</div>}
         </div>
         <button onClick={() => { if (locked) return; if (isApply) { on ? cancelApply(c, date) : setApplyFor({ c, date }); } else toggle(date, c.id); }}
           disabled={locked} style={{ ...pill, opacity: locked ? 0.4 : 1, padding: "9px 18px", background: on ? "#2e7d52" : "transparent", color: on ? "#fff" : C.gold, borderColor: on ? "#2e7d52" : "#5a4a22" }}>
-          {on ? (isApply ? "신청됨" : "예약됨") : (isApply ? "신청" : "예약")}
+          {on ? (isApply ? t("applied") : t("reserved")) : (isApply ? t("apply") : t("reserve"))}
         </button>
       </div>
     );
