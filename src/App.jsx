@@ -622,18 +622,20 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
   const tabs = [
     ["dashboard", "대시보드", LayoutDashboard],
     ["classes", "수업", BookOpen],
+    ["attend", "출석부", ClipboardList],
     ["members", "회원", Users],
     ["events", "이벤트", Trophy],
     ["videos", "영상", Video],
     ["notice", "공지", Megaphone],
     ["training", "운영", Flame],
-    ["schedule", "지도진", ClipboardList],
+    ["schedule", "지도진", CalendarCheck],
     ...(can(admin.role, "accounts") ? [["accounts", "관리자", KeyRound]] : []),
   ];
   const content = (
     <>
-      {tab === "dashboard" && <Dashboard data={data} wide={wide} setTab={setTab} role={admin.role} />}
+      {tab === "dashboard" && <Dashboard data={data} wide={wide} setTab={setTab} role={admin.role} admin={admin} />}
       {tab === "classes" && <ClassesAdmin data={data} persist={persist} kind="수업" canEdit={can(admin.role, "classes")} canHoliday={can(admin.role, "holiday")} />}
+      {tab === "attend" && <ReserveAdmin data={data} persist={persist} />}
       {tab === "members" && <MembersAdmin data={data} persist={persist} canEdit={can(admin.role, "members")} />}
       {tab === "events" && <ClassesAdmin data={data} persist={persist} kind="행사" canEdit={can(admin.role, "classes")} />}
       {tab === "videos" && <VideosView data={data} persist={persist} admin={can(admin.role, "classes")} />}
@@ -689,35 +691,41 @@ function Sidebar({ tabs, tab, setTab, admin, onLogout, onViewMember }) {
   );
 }
 
-function Dashboard({ data, wide, setTab, role }) {
-  const active = data.members.filter((x) => x.status === "활동중");
-  const counts = { 활동중: 0, 정지중: 0, 탈퇴: 0 };
-  data.members.forEach((x) => counts[x.status]++);
-  const bySession = SESSIONS.map((s) => ({ name: s, n: active.filter((x) => (x.enrollments || []).includes(s)).length, color: C.gold }));
-  const byTeam = TEAMS.map((t) => ({ name: t, n: active.filter((x) => (x.enrollments || []).includes(t)).length, color: tColor(t) }));
-  const maxS = Math.max(1, ...bySession.map((b) => b.n));
-  const maxT = Math.max(1, ...byTeam.map((b) => b.n));
-  const totalTrain = data.members.reduce((n, m) => n + trainTotal(data, m.id), 0);
-
+function Dashboard({ data, wide, setTab, role, admin }) {
   const big = [
     { id: "members", label: "회원 관리", sub: "명단 · 수강권 · 상품권", Ic: Users },
-    { id: "classes", label: "수업", sub: "시간표 · 출석부", Ic: BookOpen },
+    { id: "classes", label: "수업", sub: "시간표 · 수업 개설", Ic: BookOpen },
+    { id: "attend", label: "출석부", sub: "오늘 수업 출석 체크", Ic: ClipboardList },
   ];
   const small = [
     { id: "events", label: "이벤트", Ic: Trophy },
     { id: "videos", label: "수련 영상", Ic: Video },
     { id: "notice", label: "공지", Ic: Megaphone },
     { id: "training", label: "운영", Ic: Flame },
-    { id: "schedule", label: "지도진", Ic: ClipboardList },
+    { id: "schedule", label: "지도진", Ic: CalendarCheck },
     ...(can(role, "accounts") ? [{ id: "accounts", label: "관리자", Ic: KeyRound }] : []),
   ];
 
+  const today = todayStr();
+  const dow = dowOf(today);
+  const myName = admin?.name || "";
+  // 오늘 열리는 수업 (휴무 반영)
+  const todayClasses = classesOnDate(data.classes, today, { kind: "수업", holidays: data.holidays });
+  // 오늘 내가 배정된 수업 (지도진 스케줄)
+  const sched = data.scheduleData || {};
+  const myToday = todayClasses.filter((c) => {
+    const arr = sched[today]?.[c.id];
+    return Array.isArray(arr) && arr.some((s) => s.name === myName);
+  });
+  const reservedCount = (c) => (data.reservations[today]?.[c.id] || []).length;
+  const myRole = (c) => { const arr = sched[today]?.[c.id] || []; const f = arr.find((s) => s.name === myName); return f?.role; };
+
   return (
     <div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-        {big.map(({ id, label, sub, Ic }) => (
-          <button key={id} onClick={() => setTab(id)} style={{ flex: 1, textAlign: "left", background: "linear-gradient(135deg,#2a2410,#14140f)", border: "1px solid #5a4a22", borderRadius: 16, padding: 15, height: 98, display: "flex", flexDirection: "column", justifyContent: "space-between", cursor: "pointer" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}><Ic size={24} color={C.gold} /><ChevronRight size={17} color="#8a7340" /></div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        {big.map(({ id, label, sub, Ic }, i) => (
+          <button key={id} onClick={() => setTab(id)} style={{ gridColumn: i === 2 ? "span 2" : "auto", textAlign: "left", background: "linear-gradient(135deg,#2a2410,#14140f)", border: "1px solid #5a4a22", borderRadius: 16, padding: 15, minHeight: 92, display: "flex", flexDirection: "column", justifyContent: "space-between", cursor: "pointer" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}><Ic size={23} color={C.gold} /><ChevronRight size={17} color="#8a7340" /></div>
             <div><div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{label}</div><div style={{ fontSize: 10, color: C.dim2, marginTop: 2 }}>{sub}</div></div>
           </button>
         ))}
@@ -734,59 +742,46 @@ function Dashboard({ data, wide, setTab, role }) {
         ))}
       </div>
 
-      <div style={{ fontSize: 11, color: C.dim2, fontWeight: 700, marginBottom: 8, letterSpacing: 0.3 }}>현황</div>
+      {/* 사범 정보 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 11, background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "13px 15px", marginBottom: 16 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 11, background: C.goldGrad, color: "#1a1305", display: "flex", alignItems: "center", justifyContent: "center" }}><Shield size={18} /></div>
+        <div>
+          <div style={{ fontWeight: 800 }}>{myName} <span style={{ fontSize: 11, color: C.gold, fontWeight: 700 }}>{roleLabel(admin?.role)}</span></div>
+          <div style={{ fontSize: 11, color: C.dim2 }}>{today} ({DAYS[dow]}요일)</div>
+        </div>
+      </div>
 
-      <Grid3>
-        <Stat label="활동중" value={counts.활동중} unit="명" accent />
-        <Stat label="정지중" value={counts.정지중} unit="명" />
-        <Stat label="이번달 수련" value={data.members.reduce((n, m) => n + trainMonth(data, m.id), 0)} unit="회" />
-      </Grid3>
       <div style={{ display: wide ? "grid" : "block", gridTemplateColumns: wide ? "1fr 1fr" : undefined, gap: wide ? 16 : 0, alignItems: "start" }}>
-      <Panel title="세션별 등록 인원" sub="활동중 기준 · 복수 등록 포함">
-        {bySession.map((b) => <Bar key={b.name} {...b} max={maxS} />)}
-      </Panel>
-      <Panel title="전문팀 등록 인원" sub="활동중 기준">
-        {byTeam.map((b) => <Bar key={b.name} {...b} max={maxT} />)}
-      </Panel>
-      <Panel title="개설된 수업">
-        {data.classes.filter((c) => (c.kind || "수업") === "수업").length === 0 ? <Empty>개설된 수업이 없습니다.</Empty> :
-          [...data.classes].filter((c) => (c.kind || "수업") === "수업").sort((a, b) => ((b.targets || []).some(isTeam) ? 1 : 0) - ((a.targets || []).some(isTeam) ? 1 : 0) || (a.day || 0) - (b.day || 0)).map((c) => {
-            const dow = c.type === "once" ? dowOf(c.date) : c.day;
-            return (
-              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 0", borderBottom: `1px solid ${C.line}`, fontSize: 13 }}>
-                <DayBadge day={dow} color={mainColor(c.targets)} />
-                <span style={{ color: C.dim, fontFamily: DISP, fontWeight: 600 }}>{c.time}</span>
-                <span style={{ fontWeight: 600 }}>{c.label}</span>
-                <span style={{ marginLeft: "auto", fontSize: 11, color: C.dim2 }}>{c.type === "once" ? c.date.slice(5) : `매주 ${DAYS[c.day]}`}</span>
-              </div>
-            );
-          })}
-      </Panel>
-      <Panel title="다가오는 일정" sub="대회 · 심사 · 공연 · 이벤트">
-        {(() => {
-          const today = new Date().toISOString().slice(0, 10);
-          const evs = data.classes.filter((c) => c.kind === "행사" && (c.type !== "once" || c.date >= today)).sort((a, b) => (a.date || "z").localeCompare(b.date || "z"));
-          return evs.length === 0 ? <Empty>예정된 일정이 없습니다.</Empty> : evs.map((c) => {
-            const dow = c.type === "once" ? dowOf(c.date) : c.day;
-            return (
-              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 0", borderBottom: `1px solid ${C.line}`, fontSize: 13 }}>
-                <DayBadge day={dow} color={mainColor(c.targets)} />
-                <span style={{ fontWeight: 600, flex: 1 }}>{c.label}</span>
-                <span style={{ fontSize: 11, color: C.dim2 }}>{c.type === "once" ? `${c.date.slice(5)} ${c.time}` : `매주 ${DAYS[c.day]} ${c.time}`}</span>
-              </div>
-            );
-          });
-        })()}
-      </Panel>
-      <Panel title="공지사항">
-        {data.notices.length === 0 ? <Empty>등록된 공지가 없습니다.</Empty> : data.notices.map((n) => (
-          <div key={n.id} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
-            <div style={{ fontWeight: 700 }}>{n.title}</div>
-            <div style={{ fontSize: 11, color: C.dim2, margin: "3px 0 6px", fontFamily: DISP }}>{n.date}</div>
-            <div style={{ fontSize: 13, color: "#dadae0", lineHeight: 1.6 }}>{n.body}</div>
-          </div>
-        ))}
-      </Panel>
+        <Panel title="오늘 내 수업" sub="지도진 스케줄 기준">
+          {myToday.length === 0 ? <Empty>오늘 배정된 수업이 없습니다.</Empty> : myToday.map((c) => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#1a1305", background: C.gold, borderRadius: 5, padding: "2px 7px" }}>{myRole(c)}</span>
+              <span style={{ fontWeight: 700, flex: 1 }}>{c.label}</span>
+              <span style={{ fontSize: 12, color: C.dim }}>{c.time}</span>
+              <span style={{ fontSize: 11, color: C.gold }}>{reservedCount(c)}명 신청</span>
+            </div>
+          ))}
+        </Panel>
+        <Panel title="오늘 전체 수업" sub="신청 인원 포함">
+          {todayClasses.length === 0 ? <Empty>오늘 열리는 수업이 없습니다.</Empty> : todayClasses.map((c) => (
+            <button key={c.id} onClick={() => setTab("attend")} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "11px 0", borderBottom: `1px solid ${C.line}`, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+              <DayBadge day={dow} color={mainColor(c.targets)} />
+              <span style={{ fontSize: 12, color: C.dim, fontFamily: DISP, fontWeight: 600 }}>{c.time}</span>
+              <span style={{ fontWeight: 600, flex: 1, color: C.text }}>{c.label}</span>
+              <span style={{ fontSize: 11, color: C.gold }}>{reservedCount(c)}명</span>
+              <ChevronRight size={14} color={C.dim} />
+            </button>
+          ))}
+        </Panel>
+        <Panel title="공지사항">
+          {data.notices.length === 0 ? <Empty>등록된 공지가 없습니다.</Empty> : data.notices.slice(0, 5).map((n) => (
+            <div key={n.id} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ fontWeight: 700 }}>{n.title}</div>
+              <div style={{ fontSize: 11, color: C.dim2, margin: "3px 0 6px", fontFamily: DISP }}>{n.date}</div>
+              <div style={{ fontSize: 13, color: "#dadae0", lineHeight: 1.6 }}>{n.body}</div>
+            </div>
+          ))}
+        </Panel>
       </div>
     </div>
   );
@@ -1643,78 +1638,82 @@ function ClassForm({ cls, names, isEvent, onSave, onClose, onDelete }) {
 function ReserveAdmin({ data, persist }) {
   const [monthBase, setMonthBase] = useState(new Date().toISOString().slice(0, 10));
   const [selected, setSelected] = useState(todayStr());
-  const [filter, setFilter] = useState("정규반");
+  const [classId, setClassId] = useState(null);
   const [copied, setCopied] = useState(false);
-  // 필터 → 저장할 구분
-  const groupOf = (m) => {
-    if (filter === "시범단") return "시범단";
-    if (filter === "겨루기") return "겨루기";
-    if (filter === "품새") return "품새";
-    if (filter === "정규반") return "정규";
-    const e = m.enrollments || []; // 전체: 회원 등록으로 추론
-    if (e.some((x) => SESSIONS.includes(x))) return "정규";
-    if (e.includes("GDT(시범단)")) return "시범단";
-    if (e.includes("GST(겨루기)")) return "겨루기";
-    if (e.includes("GPT(품새)")) return "품새";
+
+  // 그날 열리는 수업 (휴무 반영, 행사 제외)
+  const dayClasses = classesOnDate(data.classes, selected, { kind: "수업", holidays: data.holidays });
+  // 선택된 수업 (없으면 그날 첫 수업)
+  const cls = dayClasses.find((c) => c.id === classId) || dayClasses[0] || null;
+
+  // 그 수업의 저장 구분(출석 통계용)
+  const groupOf = (c) => {
+    const tg = c.targets || [];
+    if (tg.includes("GDT(시범단)")) return "시범단";
+    if (tg.includes("GST(겨루기)")) return "겨루기";
+    if (tg.includes("GPT(품새)")) return "품새";
     return "정규";
   };
-  const mark = (date, m, st) => {
-    const cur = attSt(data.attendance[date]?.[m.id]);
-    const dayRec = { ...(data.attendance[date] || {}) };
-    if (cur === st) delete dayRec[m.id]; else dayRec[m.id] = { st, g: groupOf(m) };
-    persist({ ...data, attendance: { ...data.attendance, [date]: dayRec } });
+  // 그 수업에 그날 예약(신청)한 회원만
+  const reservedIds = cls ? (data.reservations[selected]?.[cls.id] || []) : [];
+  const list = reservedIds.map((id) => data.members.find((m) => m.id === id)).filter(Boolean).sort((a, b) => a.no.localeCompare(b.no));
+
+  const mark = (m, st) => {
+    const cur = attSt(data.attendance[selected]?.[m.id]);
+    const dayRec = { ...(data.attendance[selected] || {}) };
+    if (cur === st) delete dayRec[m.id]; else dayRec[m.id] = { st, g: cls ? groupOf(cls) : "정규" };
+    persist({ ...data, attendance: { ...data.attendance, [selected]: dayRec } });
   };
 
-  const FILTERS = [
-    { k: "전체", t: () => true },
-    { k: "정규반", t: (m) => (m.enrollments || []).some((e) => SESSIONS.includes(e)) },
-    { k: "시범단", t: (m) => (m.enrollments || []).includes("GDT(시범단)") },
-    { k: "겨루기", t: (m) => (m.enrollments || []).includes("GST(겨루기)") },
-    { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
-  ];
-  const tf = (FILTERS.find((x) => x.k === filter) || FILTERS[0]).t;
-  const list = data.members.filter((m) => m.status === "활동중").filter(tf).sort((a, b) => a.no.localeCompare(b.no));
-
   const present = list.filter((m) => attSt(data.attendance[selected]?.[m.id]) === "출석").length;
-
-  // 선택일 결석자 카톡 초안
   const absent = list.filter((m) => attSt(data.attendance[selected]?.[m.id]) === "결석").map((m) => m.name);
   const draft = absent.map((n) => `${n} 회원님, 오늘 수련에서 못 뵈었네요! 다음 시간엔 매트 위에서 같이 땀 흘려요. 가온은 늘 그 자리에 있습니다 💪`).join("\n\n");
 
   return (
     <div>
-      <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{}} selected={selected} onSelect={setSelected} />
+      <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{ holidays: data.holidays }} selected={selected} onSelect={(d) => { setSelected(d); setClassId(null); }} />
 
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "16px 0 12px", paddingBottom: 2 }}>
-        {FILTERS.map((fl) => (
-          <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "8px 15px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
-        ))}
-      </div>
+      <div style={{ fontSize: 13, color: C.gold, fontWeight: 700, margin: "16px 0 10px" }}>{selected.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(selected)]}) 수업</div>
 
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
-        <span style={{ fontSize: 13, color: C.gold, fontWeight: 700 }}>{selected.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(selected)]}) · {filter}</span>
-        <span style={{ marginLeft: "auto", fontSize: 12, color: C.dim2 }}>출석 {present} / {list.length}명</span>
-      </div>
+      {dayClasses.length === 0 ? (
+        <Empty>이 날은 열리는 수업이 없습니다.</Empty>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
+            {dayClasses.map((c) => {
+              const on = cls && c.id === cls.id;
+              return (
+                <button key={c.id} onClick={() => setClassId(c.id)} style={{ flexShrink: 0, padding: "8px 14px", borderRadius: 9, border: `1px solid ${on ? "transparent" : C.line}`, background: on ? C.goldGrad : "transparent", color: on ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{c.label} <span style={{ fontSize: 10, opacity: 0.8 }}>{c.time}</span></button>
+              );
+            })}
+          </div>
 
-      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
-        {list.length === 0 ? <Empty>해당 구분의 활동 회원이 없습니다.</Empty> : list.map((m) => {
-          const st = attSt(data.attendance[selected]?.[m.id]);
-          return (
-            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: `1px solid ${C.line}` }}>
-              <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
-              <span style={{ fontWeight: 700, flex: 1, minWidth: 0 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
-              <button onClick={() => mark(selected, m, "출석")} style={{ ...pill, padding: "7px 13px", background: st === "출석" ? "#2e7d52" : "transparent", color: st === "출석" ? "#fff" : C.dim, borderColor: st === "출석" ? "#2e7d52" : C.line }}>출석</button>
-              <button onClick={() => mark(selected, m, "결석")} style={{ ...pill, padding: "7px 13px", background: st === "결석" ? "#a23b3b" : "transparent", color: st === "결석" ? "#fff" : C.dim, borderColor: st === "결석" ? "#a23b3b" : C.line }}>결석</button>
-            </div>
-          );
-        })}
-      </div>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>{cls?.label} 신청자</span>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: C.dim2 }}>출석 {present} / {list.length}명</span>
+          </div>
 
-      {absent.length > 0 && (
-        <Panel title="결석자 카카오톡 초안">
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.6, color: "#dadae0", margin: 0, fontFamily: FONT }}>{draft}</pre>
-          <button onClick={() => { navigator.clipboard?.writeText(draft); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={{ ...btnGold, marginTop: 14 }}><Copy size={15} /> {copied ? "복사됨!" : "메시지 복사"}</button>
-        </Panel>
+          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
+            {list.length === 0 ? <Empty>이 수업에 신청한 회원이 없습니다.</Empty> : list.map((m) => {
+              const st = attSt(data.attendance[selected]?.[m.id]);
+              return (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: `1px solid ${C.line}` }}>
+                  <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
+                  <span style={{ fontWeight: 700, flex: 1, minWidth: 0 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
+                  <button onClick={() => mark(m, "출석")} style={{ ...pill, padding: "7px 13px", background: st === "출석" ? "#2e7d52" : "transparent", color: st === "출석" ? "#fff" : C.dim, borderColor: st === "출석" ? "#2e7d52" : C.line }}>출석</button>
+                  <button onClick={() => mark(m, "결석")} style={{ ...pill, padding: "7px 13px", background: st === "결석" ? "#a23b3b" : "transparent", color: st === "결석" ? "#fff" : C.dim, borderColor: st === "결석" ? "#a23b3b" : C.line }}>결석</button>
+                </div>
+              );
+            })}
+          </div>
+
+          {absent.length > 0 && (
+            <Panel title="결석자 카카오톡 초안">
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.6, color: "#dadae0", margin: 0, fontFamily: FONT }}>{draft}</pre>
+              <button onClick={() => { navigator.clipboard?.writeText(draft); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={{ ...btnGold, marginTop: 14 }}><Copy size={15} /> {copied ? "복사됨!" : "메시지 복사"}</button>
+            </Panel>
+          )}
+        </>
       )}
     </div>
   );
