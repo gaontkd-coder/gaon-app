@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   Users, CalendarCheck, LayoutDashboard, Plus, Search, Trash2, Pencil,
   X, Check, Copy, ChevronLeft, ChevronRight, LogOut, Shield, User,
-  Megaphone, BookOpen, Lock, Flame, Award, KeyRound, Trophy, Medal, Star, BadgeCheck, Download, ClipboardList, Ticket, Video,
+  Megaphone, BookOpen, Lock, Flame, Award, KeyRound, Trophy, Medal, Star, BadgeCheck, Download, ClipboardList, Ticket, Video, CalendarX,
 } from "lucide-react";
 
 // 배포 환경에서 브라우저 로컬 백업(window.storage가 없으면 localStorage 사용)
@@ -45,7 +45,7 @@ const DEFAULT_TEAM_DAYS = { "GDT(시범단)": 5, "GST(겨루기)": 6, "GPT(품�
 // 정규반 홀딩 한도: 기간 → { 최대 누적일수, 최대 횟수 }
 const HOLD_LIMITS = { "1개월": { days: 7, count: 1 }, "3개월": { days: 30, count: 2 }, "6개월": { days: 60, count: 3 }, "1년": { days: 90, count: 4 } };
 const TEAMS = ["GDT(시범단)", "GST(겨루기)", "GPT(품새)"];
-const STATUSES = ["활동중", "정지중", "탈퇴"];
+const STATUSES = ["활동중", "휴식중", "정지중", "탈퇴"];
 const ADMIN_STATUSES = ["활동중", "휴식중", "정지", "탈퇴"];
 const ADMIN_ROLES = [
   ["director", "관장"], ["vice", "지관장"], ["senior", "수석사범"],
@@ -279,7 +279,8 @@ function classesOnDate(classes, date, opt = {}) {
   return classes.filter((c) => {
     if (opt.kind && (c.kind || "수업") !== opt.kind) return false;
     if (opt.me && (c.kind || "수업") !== "행사") { if (!canReserve(opt.me, c)) return false; }
-    if (opt.holidays && (c.kind || "수업") !== "행사" && isClosed(opt.holidays, date, c.id)) return false;
+    // 휴무일: 반복(weekly) 수업만 제외 / 그날 직접 개설한 1회성(once)은 살림
+    if (opt.holidays && (c.kind || "수업") !== "행사" && c.type !== "once" && isClosed(opt.holidays, date, c.id)) return false;
     return c.type === "once" ? c.date === date : c.day === dow;
   });
 }
@@ -623,19 +624,24 @@ function Dashboard({ data, wide, setTab, role }) {
       <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
         {big.map(({ id, label, sub, Ic }) => (
           <button key={id} onClick={() => setTab(id)} style={{ flex: 1, textAlign: "left", background: "linear-gradient(135deg,#2a2410,#14140f)", border: "1px solid #5a4a22", borderRadius: 16, padding: 15, height: 98, display: "flex", flexDirection: "column", justifyContent: "space-between", cursor: "pointer" }}>
-            <Ic size={24} color={C.gold} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}><Ic size={24} color={C.gold} /><ChevronRight size={17} color="#8a7340" /></div>
             <div><div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{label}</div><div style={{ fontSize: 10, color: C.dim2, marginTop: 2 }}>{sub}</div></div>
           </button>
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9, marginBottom: 18 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 9, marginBottom: 20 }}>
         {small.map(({ id, label, Ic }) => (
-          <button key={id} onClick={() => setTab(id)} style={{ textAlign: "center", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, height: 54, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic size={21} color={C.gold} /></div>
-            <div style={{ fontSize: 10, color: "#cfcfd6", marginTop: 5 }}>{label}</div>
+          <button key={id} onClick={() => setTab(id)} style={{ position: "relative", textAlign: "left", background: "linear-gradient(135deg,#1c1709,#13110c)", border: "1px solid #4a3d1c", borderRadius: 14, padding: "13px 12px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 9, minHeight: 70 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: "rgba(216,180,90,0.14)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic size={17} color={C.gold} /></div>
+              <ChevronRight size={15} color="#7a6a3a" />
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#e8e4da" }}>{label}</div>
           </button>
         ))}
       </div>
+
+      <div style={{ fontSize: 11, color: C.dim2, fontWeight: 700, marginBottom: 8, letterSpacing: 0.3 }}>현황</div>
 
       <Grid3>
         <Stat label="활동중" value={counts.활동중} unit="명" accent />
@@ -797,6 +803,30 @@ function OperationsView({ data }) {
 
       {panel === "members" && (
         <>
+          {(() => {
+            const cumul = periods.map((p) => ({ label: isYear ? `${p}` : `${Number(p.slice(5))}월`, value: data.members.filter((m) => (m.joinDate || "").slice(0, isYear ? 4 : 7) <= p).length }));
+            const internal = active.filter((m) => m.general).length;
+            const external = active.length - internal;
+            const paused = data.members.filter((m) => m.status === "정지중").length;
+            const left = data.members.filter((m) => m.status === "탈퇴").length;
+            return (
+              <>
+                <Panel title={`회원 누적 추이 · ${isYear ? "연별" : "월별"}`} sub="가입일 기준 누적">
+                  <BarChart rows={cumul} color={C.gold} isYear={isYear} />
+                </Panel>
+                <Panel title="현재 구성">
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+                    {[["내부 회원", internal, C.gold], ["외부 회원", external, "#4d82d8"], ["정지중", paused, "#c89042"], ["탈퇴 누적", left, "#a23b3b"]].map(([l, v, col]) => (
+                      <div key={l} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px" }}>
+                        <div style={{ fontSize: 11, color: C.dim2 }}>{l}</div>
+                        <div style={{ fontFamily: DISP, fontWeight: 800, fontSize: 20, color: col, marginTop: 3 }}>{v}<span style={{ fontSize: 10, color: C.dim, fontFamily: FONT, marginLeft: 2 }}>명</span></div>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              </>
+            );
+          })()}
           <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "0 0 14px", paddingBottom: 2 }}>
             {FILTERS.map((fl) => (
               <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
@@ -926,7 +956,7 @@ function TeamDetail({ data, team, unit, setUnit, onBack }) {
   const ids = members.map((m) => m.id);
   const trainRows = trainByPeriod(data, periods, isYear, ids);
   const col = tColor(team);
-  const badge = (s) => ({ 활동중: C.gold, 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
+  const badge = (s) => ({ 활동중: C.gold, 휴식중: "#5a9bd8", 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
   return (
     <div>
       <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 운영 현황으로</button>
@@ -964,7 +994,7 @@ function MembersAdmin({ data, persist, canEdit = true }) {
   const [q, setQ] = useState(""); const [edit, setEdit] = useState(null); const [hist, setHist] = useState(null);
   const [vouchMember, setVouchMember] = useState(null);
   const [filter, setFilter] = useState("전체");
-  const FILTERS = [
+  const GROUP_FILTERS = [
     { k: "전체", t: () => true },
     { k: "내부", t: (m) => m.general },
     { k: "외부", t: (m) => !m.general },
@@ -972,10 +1002,14 @@ function MembersAdmin({ data, persist, canEdit = true }) {
     { k: "시범단", t: (m) => (m.enrollments || []).includes("GDT(시범단)") },
     { k: "겨루기", t: (m) => (m.enrollments || []).includes("GST(겨루기)") },
     { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
+  ];
+  const STATUS_FILTERS = [
     { k: "활동중", t: (m) => m.status === "활동중" },
+    { k: "휴식중", t: (m) => m.status === "휴식중" },
     { k: "정지중", t: (m) => m.status === "정지중" },
     { k: "탈퇴", t: (m) => m.status === "탈퇴" },
   ];
+  const FILTERS = [...GROUP_FILTERS, ...STATUS_FILTERS];
   const tf = (FILTERS.find((x) => x.k === filter) || FILTERS[0]).t;
   const list = data.members.filter((m) => m.name.includes(q) || m.no.includes(q) || m.phone.includes(q)).filter(tf);
   const nextNo = () => {
@@ -993,7 +1027,7 @@ function MembersAdmin({ data, persist, canEdit = true }) {
     persist(next); setEdit(null);
   };
   const remove = (id) => { if (confirm("회원 데이터를 완전히 삭제할까요? (탈퇴 처리는 상태 변경 권장)")) persist({ ...data, members: data.members.filter((x) => x.id !== id) }); };
-  const badge = (s) => ({ 활동중: C.gold, 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
+  const badge = (s) => ({ 활동중: C.gold, 휴식중: "#5a9bd8", 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
 
   return (
     <div>
@@ -1005,10 +1039,18 @@ function MembersAdmin({ data, persist, canEdit = true }) {
         </div>
         {canEdit && <button onClick={() => setEdit({ name: "", phone: "", enrollments: [], status: "활동중", general: true, instructor: false, joinDate: new Date().toISOString().slice(0, 10) })} style={btnGold}><Plus size={16} /> 추가</button>}
       </div>
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
-        {FILTERS.map((fl) => (
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
+        {GROUP_FILTERS.map((fl) => (
           <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
         ))}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, paddingBottom: 2 }}>
+        <span style={{ fontSize: 11, color: C.dim2, alignSelf: "center", marginRight: 2 }}>상태</span>
+        {STATUS_FILTERS.map((fl) => {
+          const col = { 활동중: "#2e7d52", 휴식중: "#3f72b0", 정지중: "#c89042", 탈퇴: "#a23b3b" }[fl.k];
+          const on = filter === fl.k;
+          return <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 16px", borderRadius: 9, border: `1px solid ${on ? "transparent" : C.line}`, background: on ? col : "transparent", color: on ? "#fff" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>;
+        })}
       </div>
       <div style={{ fontSize: 12, color: C.dim2, marginBottom: 10 }}>{filter} · 총 {list.length}명</div>
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
@@ -1361,7 +1403,7 @@ function ClassesAdmin({ data, persist, kind, canEdit = true, canHoliday = true }
         <button onClick={() => setView("timetable")} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><LayoutDashboard size={15} /> 정규수업 설정</button>
         <button onClick={() => setTeamCfg(true)} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><CalendarCheck size={15} /> 팀 수업 설정</button>
         <button onClick={() => setView("reserve")} style={{ ...pill, padding: "11px 15px", color: C.gold, borderColor: "#5a4a22", gap: 6 }}><ClipboardList size={15} /> 출석부</button>
-        {canHoliday && <button onClick={() => setHoliCfg(true)} style={{ ...pill, padding: "11px 15px", color: "#e0a0a0", borderColor: "#5a2222", gap: 6 }}><X size={15} /> 휴무일 관리</button>}
+        {canHoliday && <button onClick={() => setHoliCfg(true)} style={{ ...pill, padding: "11px 15px", color: "#e0a0a0", borderColor: "#5a2222", gap: 6 }}><CalendarX size={15} /> 휴무일 관리</button>}
       </div>
       <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{ holidays: data.holidays }} selected={selDate} onSelect={setSelDate} />
       {selDate && (() => {
@@ -1378,8 +1420,8 @@ function ClassesAdmin({ data, persist, kind, canEdit = true, canHoliday = true }
                 persist({ ...data, holidays: h });
               }} style={{ marginLeft: "auto", ...pill, padding: "6px 12px", fontSize: 12, color: closed ? "#fff" : "#e0a0a0", background: closed ? "#a23b3b" : "transparent", borderColor: closed ? "#a23b3b" : "#5a2222" }}>{closed ? "휴무 해제" : "이 날 휴무"}</button>}
             </div>
-            {closed ? <div style={{ background: "#2a1414", border: "1px solid #5a2222", borderRadius: 12, padding: "12px 15px", fontSize: 13, color: "#e0a0a0", fontWeight: 700 }}>🚫 {data.holidays[selDate].reason} · 휴무일</div>
-              : dayItems.length === 0 ? <Empty>이 날은 수업이 없습니다.</Empty> : (
+            {closed && <div style={{ background: "#2a1414", border: "1px solid #5a2222", borderRadius: 12, padding: "12px 15px", fontSize: 13, color: "#e0a0a0", fontWeight: 700, marginBottom: 10 }}>🚫 {data.holidays[selDate].reason} · 휴무일 (고정 수업 휴무 · 이 날 따로 개설한 수업은 아래 표시)</div>}
+            {dayItems.length === 0 ? (!closed && <Empty>이 날은 수업이 없습니다.</Empty>) : (
               <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>{dayItems.map(card)}</div>
             )}
           </div>
@@ -1683,31 +1725,47 @@ const SCHED_SLOTS = ["메인", "보조", "교육"];
 function ScheduleView({ data, persist, canEdit }) {
   const [base, setBase] = useState(new Date().toISOString().slice(0, 10));
   const [sel, setSel] = useState(todayStr());
-  const [view, setView] = useState("cal"); // cal | stat
-  const [statUnit, setStatUnit] = useState("month"); // month | year
+  const [view, setView] = useState("cal");
+  const [statUnit, setStatUnit] = useState("month");
   const sched = data.scheduleData || {};
-  // 사범 풀: 관리자 계정 이름 + 회원 중 지도진
   const coaches = [...new Set([...data.admins.map((a) => a.name), ...data.members.filter((m) => m.instructor).map((m) => m.name)])];
 
-  const setSlot = (date, slot, name) => {
-    const day = { ...(sched[date] || {}) };
-    if (!name) delete day[slot]; else day[slot] = name;
-    persist({ ...data, scheduleData: { ...sched, [date]: day } });
+  // 그날 열리는 수업 (반복+1회성, 휴무 반영, 행사 제외)
+  const dayClasses = classesOnDate(data.classes, sel, { kind: "수업", holidays: data.holidays });
+  // 특정 수업의 배정 슬롯 (없으면 기본 메인/보조/교육)
+  const slotsOf = (classId) => {
+    const arr = sched[sel]?.[classId];
+    if (Array.isArray(arr) && arr.length) return arr;
+    return SCHED_SLOTS.map((role) => ({ role, name: "" }));
   };
+  const writeSlots = (classId, slots) => {
+    const day = { ...(sched[sel] || {}) };
+    day[classId] = slots;
+    persist({ ...data, scheduleData: { ...sched, [sel]: day } });
+  };
+  const setAssign = (classId, idx, name) => { const s = slotsOf(classId).map((x, i) => i === idx ? { ...x, name } : x); writeSlots(classId, s); };
+  const addSlot = (classId) => writeSlots(classId, [...slotsOf(classId), { role: "보조", name: "" }]);
+  const removeSlot = (classId, idx) => writeSlots(classId, slotsOf(classId).filter((_, i) => i !== idx));
+  const setRole = (classId, idx, role) => { const s = slotsOf(classId).map((x, i) => i === idx ? { ...x, role } : x); writeSlots(classId, s); };
 
-  // 통계: 기간 내 사범별 메인/보조/교육 횟수
+  // 통계: 기간 내 사범별 역할 횟수 (수업별 배정 합산)
   const period = statUnit === "month" ? base.slice(0, 7) : base.slice(0, 4);
   const stats = {};
   Object.entries(sched).forEach(([date, day]) => {
     const key = statUnit === "month" ? date.slice(0, 7) : date.slice(0, 4);
     if (key !== period) return;
-    SCHED_SLOTS.forEach((slot) => {
-      const nm = day[slot]; if (!nm) return;
-      if (!stats[nm]) stats[nm] = { 메인: 0, 보조: 0, 교육: 0, 합계: 0 };
-      stats[nm][slot]++; stats[nm].합계++;
+    Object.values(day || {}).forEach((arr) => {
+      if (!Array.isArray(arr)) return; // 구형 데이터 무시
+      arr.forEach(({ role, name }) => {
+        if (!name) return;
+        if (!stats[name]) stats[name] = { 메인: 0, 보조: 0, 교육: 0, 합계: 0 };
+        if (stats[name][role] != null) stats[name][role]++;
+        stats[name].합계++;
+      });
     });
   });
   const statRows = Object.entries(stats).sort((a, b) => b[1].합계 - a[1].합계);
+  const ROLE_OPTS = ["메인", "보조", "교육"];
 
   return (
     <div>
@@ -1723,19 +1781,33 @@ function ScheduleView({ data, persist, canEdit }) {
 
       {view === "cal" ? (
         <>
-          <MonthCalendar monthBase={base} setMonthBase={setBase} classes={[]} opt={{}} selected={sel} onSelect={setSel} marks={Object.keys(sched).filter((d) => Object.keys(sched[d]).length > 0)} />
-          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16, marginTop: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.gold, marginBottom: 12 }}>{sel.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(sel)]}) 배정</div>
-            {SCHED_SLOTS.map((slot) => (
-              <div key={slot} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                <span style={{ width: 40, fontSize: 13, color: C.dim, fontWeight: 700 }}>{slot}</span>
-                <select disabled={!canEdit} value={sched[sel]?.[slot] || ""} onChange={(e) => setSlot(sel, slot, e.target.value)} style={{ ...inp, flex: 1, opacity: canEdit ? 1 : 0.6 }}>
-                  <option value="">— 미배정 —</option>
-                  {coaches.map((c) => <option key={c}>{c}</option>)}
-                </select>
+          <MonthCalendar monthBase={base} setMonthBase={setBase} classes={data.classes} opt={{ holidays: data.holidays }} selected={sel} onSelect={setSel} />
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.gold, margin: "14px 0 10px" }}>{sel.slice(5).replace("-", "월 ")}일 ({DAYS[dowOf(sel)]}) 수업별 사범 배정</div>
+          {dayClasses.length === 0 ? <Empty>이 날은 개설된 수업이 없습니다. (수업 탭에서 개설)</Empty> : dayClasses.map((c) => {
+            const slots = slotsOf(c.id);
+            return (
+              <div key={c.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 11 }}>
+                  <span style={{ fontWeight: 700 }}>{c.label}</span>
+                  {(c.targets || []).map((t) => <span key={t} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(t), borderRadius: 5, padding: "2px 6px" }}>{t}</span>)}
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: C.dim2 }}>{c.time}</span>
+                </div>
+                {slots.map((s, idx) => (
+                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+                    <select disabled={!canEdit} value={s.role} onChange={(e) => setRole(c.id, idx, e.target.value)} style={{ ...inp, width: 78, padding: "8px 8px", fontSize: 12, opacity: canEdit ? 1 : 0.6 }}>
+                      {ROLE_OPTS.map((r) => <option key={r}>{r}</option>)}
+                    </select>
+                    <select disabled={!canEdit} value={s.name} onChange={(e) => setAssign(c.id, idx, e.target.value)} style={{ ...inp, flex: 1, padding: "8px 10px", fontSize: 13, opacity: canEdit ? 1 : 0.6 }}>
+                      <option value="">— 미배정 —</option>
+                      {coaches.map((cc) => <option key={cc}>{cc}</option>)}
+                    </select>
+                    {canEdit && slots.length > 1 && <button onClick={() => removeSlot(c.id, idx)} style={{ background: "transparent", border: "none", color: "#e58282", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>}
+                  </div>
+                ))}
+                {canEdit && <button onClick={() => addSlot(c.id)} style={{ ...pill, padding: "6px 12px", fontSize: 12, color: C.gold, borderColor: "#5a4a22", marginTop: 2 }}>＋ 사범 칸 추가</button>}
               </div>
-            ))}
-          </div>
+            );
+          })}
         </>
       ) : (
         <>
@@ -2136,7 +2208,7 @@ function AdminAccounts({ data, persist, me }) {
 // ═══════════ 수련자 ═══════════
 function Member({ data, persist, me, onLogout, asAdmin }) {
   const [tab, setTab] = useState("home");
-  const isOut = me.status === "탈퇴", isPaused = me.status === "정지중";
+  const isOut = me.status === "탈퇴", isPaused = me.status === "정지중" || me.status === "휴식중";
   const tabs = isOut ? [["home", "홈", User]]
     : isPaused ? [["home", "홈", User], ["mine", "내 기록", BookOpen]]
     : [["home", "홈", User], ["reserve", "수업", CalendarCheck], ["events", "이벤트", Trophy], ["videos", "영상", Video], ["mine", "내 기록", BookOpen]];
@@ -2184,7 +2256,7 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
           )}
           {isPaused && (
             <div style={{ background: "#241f12", border: "1px solid #5a4a22", borderRadius: 12, padding: "13px 15px", marginBottom: 16, fontSize: 13, color: "#dcc89a", lineHeight: 1.6 }}>
-              현재 정지 상태예요. 수련 기록은 볼 수 있지만 수업·이벤트 신청은 재등록 후 가능합니다. 재등록 문의: 010-8984-3725
+              {me.status === "휴식중" ? "현재 휴식 중이에요. 수련 기록은 볼 수 있으며, 복귀를 원하시면 도장에 문의해 주세요." : "현재 정지 상태예요. 수련 기록은 볼 수 있지만 수업·이벤트 신청은 재등록 후 가능합니다."} 문의: 010-8984-3725
               <button onClick={() => setTab("mine")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", marginTop: 12, padding: "10px 0", background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 10, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><BookOpen size={15} /> 내 기록 보기</button>
             </div>
           )}
@@ -2250,7 +2322,7 @@ function ReserveMember({ data, persist, me, locked, kind }) {
     ? data.classes.filter((c) => c.kind === "행사" && (c.type !== "once" || c.date >= today))
         .map((c) => ({ c, date: c.type === "once" ? c.date : classDateInWeek(c, week) })).filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date))
     : data.classes.filter((c) => canReserve(me, c) && (c.kind || "수업") === kind)
-        .map((c) => ({ c, date: classDateInWeek(c, week) })).filter((x) => x.date && !isClosed(data.holidays, x.date, x.c.id)).sort((a, b) => a.date.localeCompare(b.date));
+        .map((c) => ({ c, date: classDateInWeek(c, week) })).filter((x) => x.date && !(x.c.type !== "once" && isClosed(data.holidays, x.date, x.c.id))).sort((a, b) => a.date.localeCompare(b.date));
   const toggle = (date, cid) => {
     if (locked) return;
     const dayRes = { ...(data.reservations[date] || {}) };
@@ -2304,7 +2376,7 @@ function ReserveMember({ data, persist, me, locked, kind }) {
       {locked && <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#241f12", border: `1px solid #5a4a22`, borderRadius: 12, padding: "13px 15px", marginBottom: 16, fontSize: 13, color: "#dcc89a" }}><Lock size={16} /> 정지중 상태에서는 조회만 가능합니다. 복귀를 원하시면 도장에 문의해 주세요.</div>}
 
       <MonthCalendar monthBase={monthBase} setMonthBase={setMonthBase} classes={data.classes} opt={{ kind, me, holidays: data.holidays }} selected={selected} onSelect={setSelected} />
-      {dayClosed && <div style={{ background: "#2a1414", border: "1px solid #5a2222", borderRadius: 12, padding: "12px 15px", margin: "14px 0 0", fontSize: 13, color: "#e0a0a0", fontWeight: 700 }}>🚫 {data.holidays[selected].reason || "휴무"} · 이 날은 수업이 없습니다</div>}
+      {dayClosed && <div style={{ background: "#2a1414", border: "1px solid #5a2222", borderRadius: 12, padding: "12px 15px", margin: "14px 0 0", fontSize: 13, color: "#e0a0a0", fontWeight: 700 }}>🚫 {data.holidays[selected].reason || "휴무"} · 고정 수업은 쉽니다{dayItems.length > 0 ? " (이 날 따로 열린 수업은 아래에서 신청 가능)" : ""}</div>}
 
       {selected && (
         <div style={{ marginBottom: 8 }}>
