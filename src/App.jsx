@@ -1066,7 +1066,8 @@ function TeamDetail({ data, team, unit, setUnit, onBack }) {
 function MembersAdmin({ data, persist, canEdit = true }) {
   const [q, setQ] = useState(""); const [edit, setEdit] = useState(null); const [hist, setHist] = useState(null);
   const [vouchMember, setVouchMember] = useState(null);
-  const [filter, setFilter] = useState("전체");
+  const [gFilter, setGFilter] = useState("전체");
+  const [sFilter, setSFilter] = useState("전체");
   const GROUP_FILTERS = [
     { k: "전체", t: () => true },
     { k: "내부", t: (m) => m.general },
@@ -1077,14 +1078,16 @@ function MembersAdmin({ data, persist, canEdit = true }) {
     { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
   ];
   const STATUS_FILTERS = [
+    { k: "전체", t: () => true },
     { k: "활동중", t: (m) => m.status === "활동중" },
     { k: "휴식중", t: (m) => m.status === "휴식중" },
     { k: "정지중", t: (m) => m.status === "정지중" },
     { k: "탈퇴", t: (m) => m.status === "탈퇴" },
   ];
-  const FILTERS = [...GROUP_FILTERS, ...STATUS_FILTERS];
-  const tf = (FILTERS.find((x) => x.k === filter) || FILTERS[0]).t;
-  const list = data.members.filter((m) => m.name.includes(q) || m.no.includes(q) || m.phone.includes(q)).filter(tf);
+  const gf = (GROUP_FILTERS.find((x) => x.k === gFilter) || GROUP_FILTERS[0]).t;
+  const sf = (STATUS_FILTERS.find((x) => x.k === sFilter) || STATUS_FILTERS[0]).t;
+  const list = data.members.filter((m) => m.name.includes(q) || m.no.includes(q) || m.phone.includes(q)).filter(gf).filter(sf);
+  const filterLabel = `${gFilter}${sFilter !== "전체" ? " · " + sFilter : ""}`;
   const nextNo = () => {
     const p = yy();
     const n = Math.max(0, ...data.members.filter((m) => m.no.startsWith(p)).map((m) => Number(m.no.split("-")[1]))) + 1;
@@ -1113,19 +1116,20 @@ function MembersAdmin({ data, persist, canEdit = true }) {
         {canEdit && <button onClick={() => setEdit({ name: "", phone: "", enrollments: [], status: "활동중", general: true, instructor: false, joinDate: new Date().toISOString().slice(0, 10) })} style={btnGold}><Plus size={16} /> 추가</button>}
       </div>
       <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
+        <span style={{ fontSize: 11, color: C.dim2, alignSelf: "center", marginRight: 2, flexShrink: 0 }}>구분</span>
         {GROUP_FILTERS.map((fl) => (
-          <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
+          <button key={fl.k} onClick={() => setGFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${gFilter === fl.k ? "transparent" : C.line}`, background: gFilter === fl.k ? C.goldGrad : "transparent", color: gFilter === fl.k ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 14, paddingBottom: 2 }}>
-        <span style={{ fontSize: 11, color: C.dim2, alignSelf: "center", marginRight: 2 }}>상태</span>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
+        <span style={{ fontSize: 11, color: C.dim2, alignSelf: "center", marginRight: 2, flexShrink: 0 }}>상태</span>
         {STATUS_FILTERS.map((fl) => {
-          const col = { 활동중: "#2e7d52", 휴식중: "#3f72b0", 정지중: "#c89042", 탈퇴: "#a23b3b" }[fl.k];
-          const on = filter === fl.k;
-          return <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 16px", borderRadius: 9, border: `1px solid ${on ? "transparent" : C.line}`, background: on ? col : "transparent", color: on ? "#fff" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>;
+          const col = { 활동중: "#2e7d52", 휴식중: "#3f72b0", 정지중: "#c89042", 탈퇴: "#a23b3b" }[fl.k] || C.gold;
+          const on = sFilter === fl.k;
+          return <button key={fl.k} onClick={() => setSFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 15px", borderRadius: 9, border: `1px solid ${on ? "transparent" : C.line}`, background: on ? (fl.k === "전체" ? C.goldGrad : col) : "transparent", color: on ? (fl.k === "전체" ? "#1a1305" : "#fff") : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>;
         })}
       </div>
-      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 10 }}>{filter} · 총 {list.length}명</div>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 10 }}>{filterLabel} · 총 {list.length}명</div>
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
         {list.length === 0 ? <Empty>회원이 없습니다.</Empty> : list.map((m) => {
           const actBtn = { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "8px 0", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.dim, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT };
@@ -2290,7 +2294,7 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
   const total = trainTotal(data, me.id), month = trainMonth(data, me.id);
   const star = me.instructor ? "★ " : "";
   const langBtn = (
-    <button onClick={() => setLang(lang === "ko" ? "en" : "ko")} style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 8, color: C.gold, fontSize: 12, fontWeight: 700, padding: "6px 11px", cursor: "pointer", marginBottom: 12 }}>🌐 {lang === "ko" ? "English" : "한국어"}</button>
+    <button onClick={() => setLang(lang === "ko" ? "en" : "ko")} style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 8, color: C.gold, fontSize: 12, fontWeight: 700, padding: "0 11px", height: 38, cursor: "pointer", whiteSpace: "nowrap" }}>🌐 {lang === "ko" ? "EN" : "한"}</button>
   );
 
   return (
@@ -2300,9 +2304,8 @@ function Member({ data, persist, me, onLogout, asAdmin }) {
           <Shield size={15} /> 관리자가 보는 수련자 화면입니다 · {star}{me.name}
         </div>
       )}
-      <TopBar role={asAdmin ? t("instructor") : t("member")} name={`${star}${me.name} · ${me.no}`} onLogout={onLogout} logoutLabel={asAdmin ? t("toAdmin") : t("logout")} />
-      {tab === "home" && langBtn}
-      {tab !== "home" && <button onClick={() => setTab("home")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> {t("home")}</button>}
+      <TopBar role={asAdmin ? t("instructor") : t("member")} name={`${star}${me.name} · ${me.no}`} onLogout={onLogout} logoutLabel={asAdmin ? t("toAdmin") : t("logout")} extra={langBtn} />
+      {tab !== "home" && <button onClick={() => setTab("home")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0, marginTop: 12 }}><ChevronLeft size={16} /> {t("home")}</button>}
       {tab !== "home" && <TabBar tabs={tabs} tab={tab} setTab={setTab} />}
       <NoticeMarquee notices={data.notices} />
       {tab === "home" && (
@@ -2596,14 +2599,17 @@ function MineRecord({ data, me }) {
 }
 
 // ═══════════ 공통 UI ═══════════
-function TopBar({ role, name, onLogout, logoutLabel }) {
+function TopBar({ role, name, onLogout, logoutLabel, extra }) {
   return (
     <header style={{ display: "flex", alignItems: "center", padding: "26px 0 18px", borderBottom: `1px solid ${C.line}` }}>
       <div>
         <img src="/logo-h.png" alt="가온태권도장" style={{ width: 158, height: "auto", display: "block" }} />
         <div style={{ fontSize: 12, color: C.dim, marginTop: 8 }}>{role} · {name}</div>
       </div>
-      <button onClick={onLogout} style={{ ...iconBtn, marginLeft: "auto", width: "auto", padding: "0 13px", gap: 6, fontSize: 13, height: 38 }}><LogOut size={14} /> {logoutLabel || "로그아웃"}</button>
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        {extra}
+        <button onClick={onLogout} style={{ ...iconBtn, width: "auto", padding: "0 13px", gap: 6, fontSize: 13, height: 38 }}><LogOut size={14} /> {logoutLabel || "로그아웃"}</button>
+      </div>
     </header>
   );
 }
