@@ -278,13 +278,27 @@ function ytId(url) {
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);
   return m ? m[1] : "";
 }
+// 하루치 출석 레코드에서 한 회원의 출석 건들을 모아줌 (수업별 c키 + 레거시 회원ID)
+// 반환: [{st, g}] 배열 (그 날 그 회원이 출석/결석한 수업들)
+function dayAttEntries(day, mid) {
+  const out = [];
+  if (!day) return out;
+  Object.entries(day).forEach(([k, v]) => {
+    if (k.startsWith("c")) { // 수업별 구조: day["c수업ID"][회원ID]
+      if (v && typeof v === "object" && v[mid] !== undefined) out.push(v[mid]);
+    } else if (String(k) === String(mid)) { // 레거시: day[회원ID]
+      out.push(v);
+    }
+  });
+  return out;
+}
 // 누적 / 월별 수련 횟수 (출석 기준)
-const trainTotal = (data, mid) => Object.values(data.attendance).reduce((n, day) => n + (attSt(day[mid]) === "출석" ? 1 : 0), 0);
-const trainMonth = (data, mid, m = ym()) => Object.entries(data.attendance).reduce((n, [d, day]) => n + (d.startsWith(m) && attSt(day[mid]) === "출석" ? 1 : 0), 0);
+const trainTotal = (data, mid) => Object.values(data.attendance).reduce((n, day) => n + dayAttEntries(day, mid).filter((e) => attSt(e) === "출석").length, 0);
+const trainMonth = (data, mid, m = ym()) => Object.entries(data.attendance).reduce((n, [d, day]) => n + (d.startsWith(m) ? dayAttEntries(day, mid).filter((e) => attSt(e) === "출석").length : 0), 0);
 // 구분별 누적 횟수
-const trainByGroup = (data, mid, g) => Object.values(data.attendance).reduce((n, day) => n + (attSt(day[mid]) === "출석" && attG(day[mid]) === g ? 1 : 0), 0);
+const trainByGroup = (data, mid, g) => Object.values(data.attendance).reduce((n, day) => n + dayAttEntries(day, mid).filter((e) => attSt(e) === "출석" && attG(e) === g).length, 0);
 // 구분별 월 횟수
-const trainGroupMonth = (data, mid, g, m) => Object.entries(data.attendance).reduce((n, [d, day]) => n + (d.startsWith(m) && attSt(day[mid]) === "출석" && attG(day[mid]) === g ? 1 : 0), 0);
+const trainGroupMonth = (data, mid, g, m) => Object.entries(data.attendance).reduce((n, [d, day]) => n + (d.startsWith(m) ? dayAttEntries(day, mid).filter((e) => attSt(e) === "출석" && attG(e) === g).length : 0), 0);
 
 // 최근 N개월 키 ["2026-01", ...]
 function recentMonths(n) {
@@ -434,7 +448,7 @@ function classesOnDate(classes, date, opt = {}) {
     // 휴무일: 반복(weekly) 수업만 제외 / 그날 직접 개설한 1회성(once)은 살림
     if (opt.holidays && (c.kind || "수업") !== "행사" && c.type !== "once" && isClosed(opt.holidays, date, c.id)) return false;
     return c.type === "once" ? c.date === date : c.day === dow;
-  });
+  }).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
 }
 
 // 엑셀에서 바로 열리는 CSV 내려받기 (UTF-8 BOM 포함 → 한글 안 깨짐)
@@ -1802,15 +1816,22 @@ function ReserveAdmin({ data, persist }) {
   const reservedIds = cls ? (data.reservations[selected]?.[cls.id] || []) : [];
   const list = reservedIds.map((id) => data.members.find((m) => m.id === id)).filter(Boolean).sort((a, b) => a.no.localeCompare(b.no));
 
+  // 수업별 독립 출석: attendance[날짜]["c수업ID"][회원ID] = {st, g}
+  const ckey = cls ? `c${cls.id}` : null;
+  const attOf = (mid) => attSt(cls ? data.attendance[selected]?.[ckey]?.[mid] : undefined);
+
   const mark = (m, st) => {
-    const cur = attSt(data.attendance[selected]?.[m.id]);
-    const dayRec = { ...(data.attendance[selected] || {}) };
-    if (cur === st) delete dayRec[m.id]; else dayRec[m.id] = { st, g: cls ? groupOf(cls) : "정규" };
-    persist({ ...data, attendance: { ...data.attendance, [selected]: dayRec } });
+    if (!cls) return;
+    const cur = attOf(m.id);
+    const day = { ...(data.attendance[selected] || {}) };
+    const clsRec = { ...(day[ckey] || {}) };
+    if (cur === st) delete clsRec[m.id]; else clsRec[m.id] = { st, g: groupOf(cls) };
+    day[ckey] = clsRec;
+    persist({ ...data, attendance: { ...data.attendance, [selected]: day } });
   };
 
-  const present = list.filter((m) => attSt(data.attendance[selected]?.[m.id]) === "출석").length;
-  const absent = list.filter((m) => attSt(data.attendance[selected]?.[m.id]) === "결석").map((m) => m.name);
+  const present = list.filter((m) => attOf(m.id) === "출석").length;
+  const absent = list.filter((m) => attOf(m.id) === "결석").map((m) => m.name);
   const draft = absent.map((n) => `${n} 회원님, 오늘 수련에서 못 뵈었네요! 다음 시간엔 매트 위에서 같이 땀 흘려요. 가온은 늘 그 자리에 있습니다 💪`).join("\n\n");
 
   return (
@@ -1839,7 +1860,7 @@ function ReserveAdmin({ data, persist }) {
 
           <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
             {list.length === 0 ? <Empty>이 수업에 신청한 회원이 없습니다.</Empty> : list.map((m) => {
-              const st = attSt(data.attendance[selected]?.[m.id]);
+              const st = attOf(m.id);
               return (
                 <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: `1px solid ${C.line}` }}>
                   <span style={{ fontSize: 11, color: C.dim2, minWidth: 42, fontFamily: DISP }}>{m.no}</span>
