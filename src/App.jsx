@@ -830,6 +830,12 @@ function Dashboard({ data, wide, setTab, role, admin, ownerTabs = [] }) {
   });
   const reservedCount = (c) => (data.reservations[today]?.[c.id] || []).length;
   const myRole = (c) => { const arr = sched[today]?.[c.id] || []; const f = arr.find((s) => s.name === myName); return f?.role; };
+  // 그 수업에 배정된 사범들 (역할 순: 메인→보조→교육)
+  const coachesOf = (c) => {
+    const arr = sched[today]?.[c.id] || [];
+    const order = { "메인": 0, "보조": 1, "교육": 2 };
+    return [...arr].filter((s) => s.name).sort((a, b) => (order[a.role] ?? 9) - (order[b.role] ?? 9));
+  };
 
   return (
     <div>
@@ -899,16 +905,28 @@ function Dashboard({ data, wide, setTab, role, admin, ownerTabs = [] }) {
             </div>
           ))}
         </Panel>
-        <Panel title="오늘 전체 수업" sub="신청 인원 포함">
-          {todayClasses.length === 0 ? <Empty>오늘 열리는 수업이 없습니다.</Empty> : todayClasses.map((c) => (
-            <button key={c.id} onClick={() => setTab("attend")} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "11px 0", borderBottom: `1px solid ${C.line}`, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
-              <DayBadge day={dow} color={mainColor(c.targets)} />
-              <span style={{ fontSize: 12, color: C.dim, fontFamily: DISP, fontWeight: 600 }}>{c.time}</span>
-              <span style={{ fontWeight: 600, flex: 1, color: C.text }}>{c.label}</span>
-              <span style={{ fontSize: 11, color: C.gold }}>{reservedCount(c)}명</span>
-              <ChevronRight size={14} color={C.dim} />
-            </button>
-          ))}
+        <Panel title="오늘 전체 수업" sub="배정 사범 · 신청 인원">
+          {todayClasses.length === 0 ? <Empty>오늘 열리는 수업이 없습니다.</Empty> : todayClasses.map((c) => {
+            const coaches = coachesOf(c);
+            return (
+              <button key={c.id} onClick={() => setTab("attend")} style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", padding: "11px 0", borderBottom: `1px solid ${C.line}`, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+                <DayBadge day={dow} color={mainColor(c.targets)} />
+                <span style={{ fontSize: 12, color: C.dim, fontFamily: DISP, fontWeight: 600, paddingTop: 1 }}>{c.time}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: C.text }}>{c.label}</div>
+                  {coaches.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                      {coaches.map((s, i) => (
+                        <span key={i} style={{ fontSize: 10, fontWeight: 700, color: s.role === "메인" ? "#1a1305" : C.dim, background: s.role === "메인" ? C.gold : "transparent", border: `1px solid ${s.role === "메인" ? "transparent" : C.line}`, borderRadius: 5, padding: "2px 7px" }}>{s.name}<span style={{ opacity: 0.7 }}> {s.role}</span></span>
+                      ))}
+                    </div>
+                  ) : <div style={{ fontSize: 11, color: C.dim2, marginTop: 4 }}>배정된 사범 없음</div>}
+                </div>
+                <span style={{ fontSize: 11, color: C.gold, paddingTop: 1 }}>{reservedCount(c)}명</span>
+                <ChevronRight size={14} color={C.dim} style={{ marginTop: 2 }} />
+              </button>
+            );
+          })}
         </Panel>
         <Panel title="공지사항">
           {data.notices.length === 0 ? <Empty>등록된 공지가 없습니다.</Empty> : data.notices.slice(0, 5).map((n) => (
