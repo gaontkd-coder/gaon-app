@@ -895,35 +895,27 @@ function Dashboard({ data, wide, setTab, role, admin, ownerTabs = [] }) {
       </div>
 
       <div style={{ display: wide ? "grid" : "block", gridTemplateColumns: wide ? "1fr 1fr" : undefined, gap: wide ? 16 : 0, alignItems: "start" }}>
-        <Panel title="오늘 내 수업" sub="지도진 스케줄 기준">
-          {myToday.length === 0 ? <Empty>오늘 배정된 수업이 없습니다.</Empty> : myToday.map((c) => (
-            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#1a1305", background: C.gold, borderRadius: 5, padding: "2px 7px" }}>{myRole(c)}</span>
-              <span style={{ fontWeight: 700, flex: 1 }}>{c.label}</span>
-              <span style={{ fontSize: 12, color: C.dim }}>{c.time}</span>
-              <span style={{ fontSize: 11, color: C.gold }}>{reservedCount(c)}명 신청</span>
-            </div>
-          ))}
-        </Panel>
-        <Panel title="오늘 전체 수업" sub="배정 사범 · 신청 인원">
+        <Panel title="오늘 수업" sub="시간순 · 배정 사범 · 신청 인원">
           {todayClasses.length === 0 ? <Empty>오늘 열리는 수업이 없습니다.</Empty> : todayClasses.map((c) => {
             const coaches = coachesOf(c);
+            const mine = coaches.some((s) => s.name === myName);
             return (
-              <button key={c.id} onClick={() => setTab("attend")} style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", padding: "11px 0", borderBottom: `1px solid ${C.line}`, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
-                <DayBadge day={dow} color={mainColor(c.targets)} />
-                <span style={{ fontSize: 12, color: C.dim, fontFamily: DISP, fontWeight: 600, paddingTop: 1 }}>{c.time}</span>
+              <button key={c.id} onClick={() => setTab("attend")} style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", padding: "12px", marginBottom: 8, borderRadius: 12, border: `1px solid ${mine ? C.gold : C.line}`, background: mine ? "#181206" : C.bg, cursor: "pointer", textAlign: "left" }}>
+                <span style={{ fontSize: 12, color: C.gold, fontFamily: DISP, fontWeight: 700, paddingTop: 1, minWidth: 42 }}>{c.time}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: C.text }}>{c.label}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontWeight: 700, color: C.text }}>{c.label}</span>
+                    {mine && <span style={{ fontSize: 9, fontWeight: 700, color: "#1a1305", background: C.gold, borderRadius: 4, padding: "1px 6px" }}>내 수업</span>}
+                  </div>
                   {coaches.length > 0 ? (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
                       {coaches.map((s, i) => (
-                        <span key={i} style={{ fontSize: 10, fontWeight: 700, color: s.role === "메인" ? "#1a1305" : C.dim, background: s.role === "메인" ? C.gold : "transparent", border: `1px solid ${s.role === "메인" ? "transparent" : C.line}`, borderRadius: 5, padding: "2px 7px" }}>{s.name}<span style={{ opacity: 0.7 }}> {s.role}</span></span>
+                        <span key={i} style={{ fontSize: 11, fontWeight: 700, color: s.role === "메인" ? "#1a1305" : "#dadae0", background: s.role === "메인" ? C.gold : "transparent", border: `1px solid ${s.role === "메인" ? "transparent" : C.line}`, borderRadius: 6, padding: "3px 8px" }}>{s.role} · {s.name}</span>
                       ))}
                     </div>
-                  ) : <div style={{ fontSize: 11, color: C.dim2, marginTop: 4 }}>배정된 사범 없음</div>}
+                  ) : <div style={{ fontSize: 11, color: C.dim2, marginTop: 5 }}>배정된 사범 없음</div>}
                 </div>
-                <span style={{ fontSize: 11, color: C.gold, paddingTop: 1 }}>{reservedCount(c)}명</span>
-                <ChevronRight size={14} color={C.dim} style={{ marginTop: 2 }} />
+                <span style={{ fontSize: 11, color: C.gold, paddingTop: 1, whiteSpace: "nowrap" }}>{reservedCount(c)}명</span>
               </button>
             );
           })}
