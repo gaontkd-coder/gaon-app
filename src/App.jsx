@@ -2105,6 +2105,7 @@ function PaymentModal({ data, persist, member, onClose }) {
   const [ses, setSes] = useState("오후");
   const [period, setPeriod] = useState("1개월");
   const [teamType, setTeamType] = useState("내부");
+  const [teamName, setTeamName] = useState(TEAMS[0]); // 어느 팀(GDT/GST/GPT)
   const [extras, setExtras] = useState({}); // id → bool
   const [memo, setMemo] = useState("");
   const [discount, setDiscount] = useState(0);
@@ -2116,7 +2117,7 @@ function PaymentModal({ data, persist, member, onClose }) {
     else { base = (isNew ? p.newReg : p.oldReg)[period][ses]; }
     baseLabel = `정규반 ${ses} ${period}`;
   } else if (kind === "팀") {
-    base = p.team[teamType]; baseLabel = `전문팀 ${teamType} (월)`;
+    base = p.team[teamType]; baseLabel = `${teamName} ${teamType} (월)`;
   }
   const extraList = p.extras.filter((e) => extras[e.id]);
   const extraSum = extraList.reduce((s, e) => s + e.price, 0);
@@ -2130,19 +2131,17 @@ function PaymentModal({ data, persist, member, onClose }) {
     const autoMemo = `${member.name} · ${parts.join(" + ")}${isNew && kind === "정규반" ? " (신규)" : ""}${memo ? " · " + memo : ""}`;
     const rec = { id: Date.now(), type: "수입", date: todayStr(), cat: kind === "팀" ? "팀비" : kind === "기타" ? "기타수입" : "수강료", amount: total, memo: autoMemo, memberId: member.id };
 
-    // 회원 수강 기간 자동 연장 (정규반·팀일 때)
+    // 회원 수강 기간 자동 연장 (정규반·팀)
     let members = data.members;
-    const enrollKey = kind === "정규반" ? ses : (kind === "팀" ? ({ "내부": null, "외부": null, "지도진": null, "체험": null })[teamType] : null);
-    // 팀 결제는 어느 팀인지 모달에 없으므로 기간연장은 정규반만 자동 (팀은 기존 수정에서)
-    if (kind === "정규반") {
+    const enrollKey = kind === "정규반" ? ses : (kind === "팀" ? teamName : null);
+    if (enrollKey) {
       const teamDays = data.teamDays || DEFAULT_TEAM_DAYS;
       members = data.members.map((m) => {
         if (m.id !== member.id) return m;
-        const enrollments = (m.enrollments || []).includes(ses) ? m.enrollments : [...(m.enrollments || []), ses];
+        const enrollments = (m.enrollments || []).includes(enrollKey) ? m.enrollments : [...(m.enrollments || []), enrollKey];
         const terms = { ...(m.terms || {}) };
-        const cur = terms[ses] || { holds: [], history: [] };
-        terms[ses] = renewTerm(ses, cur, teamDays, period);
-        // 만료 연장 시 정지/휴식이면 활동중 복귀
+        const cur = terms[enrollKey] || { holds: [], history: [] };
+        terms[enrollKey] = renewTerm(enrollKey, cur, teamDays, kind === "정규반" ? period : undefined);
         const status = (m.status === "정지중" || m.status === "휴식중") ? "활동중" : m.status;
         return { ...m, enrollments, terms, status };
       });
@@ -2159,7 +2158,7 @@ function PaymentModal({ data, persist, member, onClose }) {
 
   return (
     <Modal title={`${member.name} 결제 / 등록`} onClose={onClose}>
-      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14, lineHeight: 1.6 }}>결제하면 재무에 수입으로 기록됩니다. <b style={{ color: C.gold }}>정규반은 수강 기간도 자동 연장</b>됩니다.</div>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14, lineHeight: 1.6 }}>결제하면 재무에 수입으로 기록되고, <b style={{ color: C.gold }}>정규반·팀은 수강 기간이 자동 연장</b>됩니다.</div>
 
       <Field label="등록 종류">{chipRow(["정규반", "팀", "기타"], kind, setKind)}</Field>
 
@@ -2170,7 +2169,12 @@ function PaymentModal({ data, persist, member, onClose }) {
           <Field label="기간">{chipRow(["1개월", "3개월", "6개월", "1년"], period, setPeriod)}</Field>
         </>
       )}
-      {kind === "팀" && <Field label="팀 구분">{chipRow(["내부", "외부", "지도진", "체험"], teamType, setTeamType)}</Field>}
+      {kind === "팀" && (
+        <>
+          <Field label="팀 선택">{chipRow(TEAMS, teamName, setTeamName)}</Field>
+          <Field label="회원 구분">{chipRow(["내부", "외부", "지도진", "체험"], teamType, setTeamType)}</Field>
+        </>
+      )}
 
       <Field label="추가 항목 (선택)">
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -2198,6 +2202,38 @@ function PaymentModal({ data, persist, member, onClose }) {
       </div>
 
       <button onClick={submit} style={{ ...btnGold, width: "100%", justifyContent: "center" }}><Check size={16} /> 결제 기록</button>
+
+      {(() => {
+        const my = (data.finance || []).filter((f) => f.type === "수입" && f.memberId === member.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+        if (my.length === 0) return null;
+        const byYear = {};
+        my.forEach((f) => { const y = (f.date || "").slice(0, 4); (byYear[y] = byYear[y] || []).push(f); });
+        const years = Object.keys(byYear).sort((a, b) => b.localeCompare(a));
+        return (
+          <div style={{ marginTop: 22 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.gold, marginBottom: 4 }}>{member.name} 결제 기록</div>
+            <div style={{ fontSize: 11, color: C.dim2, marginBottom: 12 }}>총 {my.length}건 · 누적 {won(my.reduce((s, f) => s + (f.amount || 0), 0))}원</div>
+            {years.map((y) => {
+              const rows = byYear[y];
+              const sum = rows.reduce((s, f) => s + (f.amount || 0), 0);
+              return (
+                <div key={y} style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700, color: C.dim, borderBottom: `1px solid ${C.line}`, paddingBottom: 5, marginBottom: 6 }}>
+                    <span style={{ fontFamily: DISP }}>{y}년</span><span style={{ fontFamily: DISP, color: C.gold }}>{won(sum)}원</span>
+                  </div>
+                  {rows.map((f) => (
+                    <div key={f.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 0", fontSize: 12 }}>
+                      <span style={{ fontFamily: DISP, color: C.dim2, minWidth: 64 }}>{(f.date || "").slice(5)}</span>
+                      <span style={{ flex: 1, color: "#dadae0", lineHeight: 1.4 }}>{(f.memo || "").replace(member.name + " · ", "") || f.cat}</span>
+                      <span style={{ fontFamily: DISP, fontWeight: 700, color: "#3fa86a", whiteSpace: "nowrap" }}>{won(f.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </Modal>
   );
 }
@@ -3261,8 +3297,15 @@ function MineRecord({ data, me, lang = "ko" }) {
   const t = (k) => (LANG[lang] || LANG.ko)[k];
   const total = trainTotal(data, me.id), month = trainMonth(data, me.id);
   const rows = [];
-  Object.entries(data.reservations).forEach(([date, byClass]) => Object.entries(byClass).forEach(([cid, ids]) => {
-    if (ids.includes(me.id)) { const c = data.classes.find((x) => x.id === Number(cid)); if (c) rows.push({ date, c, att: data.attendance[date]?.[me.id] }); }
+  Object.entries(data.reservations || {}).forEach(([date, byClass]) => Object.entries(byClass || {}).forEach(([cid, ids]) => {
+    if (Array.isArray(ids) && ids.includes(me.id)) {
+      const c = data.classes.find((x) => x.id === Number(cid));
+      if (c) {
+        const day = data.attendance[date] || {};
+        const rec = day[`c${cid}`]?.[me.id] ?? day[me.id]; // 새 구조 우선, 레거시 보조
+        rows.push({ date, c, att: attSt(rec) });
+      }
+    }
   }));
   rows.sort((a, b) => b.date.localeCompare(a.date));
   return (
@@ -3323,10 +3366,10 @@ function MineRecord({ data, me, lang = "ko" }) {
       })()}
       {(me.history || []).length > 0 && (
         <Panel title={t("footprint")} sub={t("footprintSub")}>
-          {[...me.history].sort((a, b) => a.date.localeCompare(b.date)).map((h, i, arr) => {
+          {[...me.history].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map((h, i, arr) => {
             const { color, Icon } = HCAT[h.category] || HCAT["기타"];
             return (
-              <div key={h.id} style={{ display: "flex", gap: 13, paddingBottom: i === arr.length - 1 ? 0 : 18 }}>
+              <div key={h.id ?? i} style={{ display: "flex", gap: 13, paddingBottom: i === arr.length - 1 ? 0 : 18 }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
                   <div style={{ width: 36, height: 36, borderRadius: "50%", background: color, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: `0 0 0 4px ${color}22` }}><Icon size={17} color="#fff" /></div>
                   {i < arr.length - 1 && <div style={{ width: 2, flex: 1, background: C.line, marginTop: 5 }} />}
@@ -3348,7 +3391,7 @@ function MineRecord({ data, me, lang = "ko" }) {
               <div style={{ fontWeight: 600 }}>{r.c.label} <span style={{ color: C.dim, fontWeight: 400, fontFamily: DISP }}>{r.c.time}</span></div>
               <div style={{ fontSize: 12, color: C.dim2, fontFamily: DISP }}>{r.date}</div>
             </div>
-            {r.att && <span style={{ fontSize: 12, fontWeight: 700, color: r.att === "출석" ? "#5ac88a" : "#e58282" }}>{r.att}</span>}
+            {r.att ? <span style={{ fontSize: 12, fontWeight: 700, color: r.att === "출석" ? "#5ac88a" : "#e58282" }}>{r.att}</span> : null}
           </div>
         ))}
       </Panel>
