@@ -1348,7 +1348,7 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
   });
   const setTerm = (k, key, val) => setF((p) => {
     const t = { ...(p.terms?.[k] || {}) }; t[key] = val;
-    t.expiry = computeExpiry(k, t, teamDays);
+    if (key !== "expiry") t.expiry = computeExpiry(k, t, teamDays); // 만료일 직접수정은 그대로 둠
     return { ...p, terms: { ...p.terms, [k]: t } };
   });
   const renew = (k, newPeriod) => setF((p) => ({ ...p, terms: { ...p.terms, [k]: renewTerm(k, p.terms[k], teamDays, newPeriod) } }));
@@ -1420,14 +1420,18 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
           </div>
         )}
 
-        {team ? (
-          <button type="button" onClick={() => renew(k)} style={{ ...pill, width: "100%", justifyContent: "center", marginTop: 9, padding: "8px 0", background: "#181206", color: C.gold, borderColor: "#5a4a22" }}>＋ 재등록 (다음 달)</button>
-        ) : (
-          <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
-            <select value={renewPeriod} onChange={(e) => setRenewPeriod(e.target.value)} style={{ ...inp, padding: "8px 10px", fontSize: 13, width: 110 }}>
-              {PERIODS.map((p) => <option key={p}>{p}</option>)}
-            </select>
-            <button type="button" onClick={() => renew(k, renewPeriod)} style={{ ...pill, flex: 1, justifyContent: "center", padding: "8px 0", background: "#181206", color: C.gold, borderColor: "#5a4a22" }}>＋ 이 기간으로 재등록</button>
+        {!team && (
+          <div style={{ marginTop: 9 }}>
+            <div style={{ fontSize: 10, color: C.dim2, marginBottom: 3 }}>만료일 (무료 조정용 · 직접 수정)</div>
+            <input type="date" style={{ ...inp, padding: "8px 10px", fontSize: 13 }} value={t.expiry || ""} onChange={(e) => setTerm(k, "expiry", e.target.value)} />
+            <div style={{ fontSize: 10, color: C.dim2, marginTop: 5 }}>유료 재등록은 회원 카드의 '결제'에서 하세요. 여기는 무료 연장·보정용입니다.</div>
+          </div>
+        )}
+        {team && (
+          <div style={{ marginTop: 9 }}>
+            <div style={{ fontSize: 10, color: C.dim2, marginBottom: 3 }}>만료일 (무료 조정용 · 직접 수정)</div>
+            <input type="date" style={{ ...inp, padding: "8px 10px", fontSize: 13 }} value={t.expiry || ""} onChange={(e) => setTerm(k, "expiry", e.target.value)} />
+            <div style={{ fontSize: 10, color: C.dim2, marginTop: 5 }}>유료 재등록은 '결제'에서 하세요. 여기는 무료 보정용입니다.</div>
           </div>
         )}
         {(t.history || []).length > 0 && <div style={{ fontSize: 10, color: C.dim2, marginTop: 7 }}>재등록 {t.history.length}회 · 최근 {t.history[t.history.length - 1].at}</div>}
@@ -2115,7 +2119,25 @@ function PaymentModal({ data, persist, member, onClose }) {
     if (extraList.length) parts.push(extraList.map((e) => e.name).join("+"));
     const autoMemo = `${member.name} · ${parts.join(" + ")}${isNew && kind === "정규반" ? " (신규)" : ""}${memo ? " · " + memo : ""}`;
     const rec = { id: Date.now(), type: "수입", date: todayStr(), cat: kind === "팀" ? "팀비" : kind === "기타" ? "기타수입" : "수강료", amount: total, memo: autoMemo, memberId: member.id };
-    persist({ ...data, finance: [...(data.finance || []), rec] });
+
+    // 회원 수강 기간 자동 연장 (정규반·팀일 때)
+    let members = data.members;
+    const enrollKey = kind === "정규반" ? ses : (kind === "팀" ? ({ "내부": null, "외부": null, "지도진": null, "체험": null })[teamType] : null);
+    // 팀 결제는 어느 팀인지 모달에 없으므로 기간연장은 정규반만 자동 (팀은 기존 수정에서)
+    if (kind === "정규반") {
+      const teamDays = data.teamDays || DEFAULT_TEAM_DAYS;
+      members = data.members.map((m) => {
+        if (m.id !== member.id) return m;
+        const enrollments = (m.enrollments || []).includes(ses) ? m.enrollments : [...(m.enrollments || []), ses];
+        const terms = { ...(m.terms || {}) };
+        const cur = terms[ses] || { holds: [], history: [] };
+        terms[ses] = renewTerm(ses, cur, teamDays, period);
+        // 만료 연장 시 정지/휴식이면 활동중 복귀
+        const status = (m.status === "정지중" || m.status === "휴식중") ? "활동중" : m.status;
+        return { ...m, enrollments, terms, status };
+      });
+    }
+    persist({ ...data, members, finance: [...(data.finance || []), rec] });
     onClose();
   };
 
@@ -2127,7 +2149,7 @@ function PaymentModal({ data, persist, member, onClose }) {
 
   return (
     <Modal title={`${member.name} 결제 / 등록`} onClose={onClose}>
-      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14 }}>결제하면 재무 장부에 수입으로 자동 기록됩니다.</div>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14, lineHeight: 1.6 }}>결제하면 재무에 수입으로 기록됩니다. <b style={{ color: C.gold }}>정규반은 수강 기간도 자동 연장</b>됩니다.</div>
 
       <Field label="등록 종류">{chipRow(["정규반", "팀", "기타"], kind, setKind)}</Field>
 
