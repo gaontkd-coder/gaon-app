@@ -3030,6 +3030,26 @@ function AdminAccounts({ data, persist, me }) {
           </div>
         ))}
       </div>
+
+      {me.role === "director" && (
+        <div style={{ marginTop: 28, border: "1px solid #5a2222", borderRadius: 14, padding: "16px 18px", background: "#1a1010" }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#e0726a", marginBottom: 6 }}>데이터 초기화 (관장 전용)</div>
+          <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.7, marginBottom: 14 }}>
+            회원의 <b>이름·연락처·회원번호·유형·경력은 그대로 유지</b>하고,<br />
+            <b style={{ color: "#e0a0a0" }}>반·팀 등록 / 재무 기록 / 출석 / 예약 / 사물함 / 월급</b>을 모두 지웁니다.<br />
+            초기화 후 회원 카드의 '결제'로 다시 등록하시면 됩니다. <b>되돌릴 수 없습니다.</b>
+          </div>
+          <button onClick={() => {
+            if (!confirm("정말 초기화할까요?\n\n· 유지: 회원 정보(이름·연락처·번호·유형·경력)\n· 삭제: 반·팀 등록, 재무, 출석, 예약, 사물함, 월급\n\n되돌릴 수 없습니다.")) return;
+            if (!confirm("한 번 더 확인합니다. 정말 진행할까요?")) return;
+            const members = data.members.map((m) => ({ ...m, enrollments: [], terms: {}, status: m.status === "탈퇴" ? "탈퇴" : "활동중" }));
+            persist({ ...data, members, finance: [], attendance: {}, reservations: {}, lockers: {}, salaries: {} });
+            alert("초기화되었습니다. 회원 정보는 유지되었어요. 이제 '결제'로 등록하시면 됩니다.");
+          }} style={{ ...btnGold, width: "100%", justifyContent: "center", background: "linear-gradient(135deg,#a23b3b,#822e2e)", color: "#fff" }}>
+            <Trash2 size={16} /> 등록·재무·출석 기록 초기화
+          </button>
+        </div>
+      )}
       {edit && (
         <Modal title={isProtected(edit) ? "최고관리자 정보 수정" : edit.id ? "관리자 계정 수정" : "관리자 계정 추가"} onClose={() => setEdit(null)}>
           <Field label="이름"><input style={inp} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="예: 이은지 사범" /></Field>
