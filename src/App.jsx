@@ -2109,6 +2109,8 @@ function PaymentModal({ data, persist, member, onClose }) {
   const [extras, setExtras] = useState({}); // id → bool
   const [memo, setMemo] = useState("");
   const [discount, setDiscount] = useState(0);
+  const [payDate, setPayDate] = useState(todayStr());
+  const [editRec, setEditRec] = useState(null); // 결제 기록 수정
 
   // 기본 수강료 계산
   let base = 0, baseLabel = "";
@@ -2129,7 +2131,7 @@ function PaymentModal({ data, persist, member, onClose }) {
     if (kind !== "기타") parts.push(baseLabel);
     if (extraList.length) parts.push(extraList.map((e) => e.name).join("+"));
     const autoMemo = `${member.name} · ${parts.join(" + ")}${isNew && kind === "정규반" ? " (신규)" : ""}${memo ? " · " + memo : ""}`;
-    const rec = { id: Date.now(), type: "수입", date: todayStr(), cat: kind === "팀" ? "팀비" : kind === "기타" ? "기타수입" : "수강료", amount: total, memo: autoMemo, memberId: member.id };
+    const rec = { id: Date.now(), type: "수입", date: payDate || todayStr(), cat: kind === "팀" ? "팀비" : kind === "기타" ? "기타수입" : "수강료", amount: total, memo: autoMemo, memberId: member.id };
 
     // 회원 수강 기간 자동 연장 (정규반·팀)
     let members = data.members;
@@ -2161,6 +2163,8 @@ function PaymentModal({ data, persist, member, onClose }) {
       <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14, lineHeight: 1.6 }}>결제하면 재무에 수입으로 기록되고, <b style={{ color: C.gold }}>정규반·팀은 수강 기간이 자동 연장</b>됩니다.</div>
 
       <Field label="등록 종류">{chipRow(["정규반", "팀", "기타"], kind, setKind)}</Field>
+
+      <Field label="결제일"><input type="date" style={inp} value={payDate} onChange={(e) => setPayDate(e.target.value)} /></Field>
 
       {kind === "정규반" && (
         <>
@@ -2222,10 +2226,12 @@ function PaymentModal({ data, persist, member, onClose }) {
                     <span style={{ fontFamily: DISP }}>{y}년</span><span style={{ fontFamily: DISP, color: C.gold }}>{won(sum)}원</span>
                   </div>
                   {rows.map((f) => (
-                    <div key={f.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 0", fontSize: 12 }}>
+                    <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontSize: 12 }}>
                       <span style={{ fontFamily: DISP, color: C.dim2, minWidth: 64 }}>{(f.date || "").slice(5)}</span>
                       <span style={{ flex: 1, color: "#dadae0", lineHeight: 1.4 }}>{(f.memo || "").replace(member.name + " · ", "") || f.cat}</span>
                       <span style={{ fontFamily: DISP, fontWeight: 700, color: "#3fa86a", whiteSpace: "nowrap" }}>{won(f.amount)}</span>
+                      <button onClick={() => setEditRec({ ...f })} style={iconBtn}><Pencil size={12} /></button>
+                      <button onClick={() => { if (confirm("이 결제 기록을 삭제할까요? (수강 기간은 자동으로 줄지 않습니다)")) persist({ ...data, finance: data.finance.filter((x) => x.id !== f.id) }); }} style={iconBtn}><Trash2 size={12} /></button>
                     </div>
                   ))}
                 </div>
@@ -2234,6 +2240,16 @@ function PaymentModal({ data, persist, member, onClose }) {
           </div>
         );
       })()}
+
+      {editRec && (
+        <Modal title="결제 기록 수정" onClose={() => setEditRec(null)}>
+          <Field label="결제일"><input type="date" style={inp} value={editRec.date || ""} onChange={(e) => setEditRec({ ...editRec, date: e.target.value })} /></Field>
+          <Field label="금액 (원)"><input type="number" style={inp} value={editRec.amount} onChange={(e) => setEditRec({ ...editRec, amount: e.target.value })} /></Field>
+          <Field label="내용 메모"><input style={inp} value={editRec.memo || ""} onChange={(e) => setEditRec({ ...editRec, memo: e.target.value })} /></Field>
+          <div style={{ fontSize: 11, color: C.dim2, marginBottom: 12 }}>※ 금액·날짜를 고치면 재무 장부에도 반영됩니다. 수강 만료일은 따로 회원 수정에서 조정하세요.</div>
+          <button onClick={() => { persist({ ...data, finance: data.finance.map((x) => x.id === editRec.id ? { ...editRec, amount: Number(editRec.amount) || 0 } : x) }); setEditRec(null); }} style={{ ...btnGold, width: "100%", justifyContent: "center" }}><Check size={16} /> 저장</button>
+        </Modal>
+      )}
     </Modal>
   );
 }
