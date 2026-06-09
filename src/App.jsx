@@ -1461,36 +1461,23 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
       <Field label="연락처"><input style={inp} value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="010-0000-0000" /></Field>
       <Field label="회원 유형">
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: C.text, cursor: "pointer" }}>
-          <input type="checkbox" checked={!!f.general} onChange={(e) => setF((p) => {
-            const general = e.target.checked;
-            let enrollments = p.enrollments || []; let terms = { ...(p.terms || {}) };
-            if (!general) { enrollments = enrollments.filter((x) => !SESSIONS.includes(x)); SESSIONS.forEach((s) => delete terms[s]); }
-            return { ...p, general, enrollments, terms };
-          })} style={{ width: 17, height: 17, accentColor: C.gold }} /> 내부 회원 (정규수업 수련자)
+          <input type="checkbox" checked={!!f.general} onChange={(e) => set("general", e.target.checked)} style={{ width: 17, height: 17, accentColor: C.gold }} /> 내부 회원 (정규수업 수련자)
         </label>
         <div style={{ fontSize: 11, color: C.dim2, margin: "5px 0 12px 25px" }}>체크하면 내부 회원, 해제하면 외부 회원(팀 활동만)으로 표시됩니다.</div>
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: C.text, cursor: "pointer" }}>
           <input type="checkbox" checked={!!f.instructor} onChange={(e) => set("instructor", e.target.checked)} style={{ width: 17, height: 17, accentColor: C.gold }} /> 지도진 (이름 앞에 ★ 표시)
         </label>
       </Field>
-      <Field label={f.general ? "정규수업 등록 (복수 선택 가능)" : "전문팀 등록 (복수 선택 가능)"}>
-        {f.general ? (
-          <>
-            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>정규반</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>{SESSIONS.map((s) => <Chip key={s} on={has(s)} color={C.gold} onClick={() => toggle(s)}>{s}</Chip>)}</div>
-            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>전문팀 (병행 시 선택)</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{TEAMS.map((t) => <Chip key={t} on={has(t)} color={tColor(t)} onClick={() => toggle(t)}>{t}</Chip>)}</div>
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 11, color: C.dim, marginBottom: 7 }}>전문팀</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{TEAMS.map((t) => <Chip key={t} on={has(t)} color={tColor(t)} onClick={() => toggle(t)}>{t}</Chip>)}</div>
-            <div style={{ fontSize: 11, color: C.dim2, marginTop: 8 }}>외부 회원은 전문팀만 등록합니다. 정규수업도 들으면 위에서 '내부 회원'을 체크하세요.</div>
-          </>
-        )}
-      </Field>
-      {(f.enrollments || []).length > 0 && (
-        <Field label="등록 기간 (각 수업별로 따로 지정)">
+
+      {!member.id && (
+        <div style={{ background: "#181206", border: `1px solid #5a4a22`, borderRadius: 11, padding: "12px 14px", marginBottom: 16, fontSize: 12, color: "#dcc89a", lineHeight: 1.6 }}>
+          반·팀 등록과 수강료 결제는 회원을 저장한 뒤, <b style={{ color: C.gold }}>회원 카드의 '결제' 버튼</b>에서 진행하세요. 거기서 등록하면 수강 기간과 매출이 함께 기록됩니다.
+        </div>
+      )}
+
+      {member.id && (f.enrollments || []).length > 0 && (
+        <Field label="현재 등록 현황 (조회 · 만료일 보정)">
+          <div style={{ fontSize: 11, color: C.dim2, marginBottom: 8 }}>유료 재등록은 회원 카드의 '결제'에서 하세요. 여기는 무료 연장·보정용입니다.</div>
           {(f.enrollments || []).map((k) => <TermCard key={k} k={k} />)}
         </Field>
       )}
