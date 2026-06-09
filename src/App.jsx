@@ -356,13 +356,15 @@ function lastDowOfMonth(year, month0, dow) {
   last.setDate(last.getDate() - diff);
   return last.toISOString().slice(0, 10);
 }
-// 팀 만료일: 등록일이 속한 달의 마지막 훈련 요일. 단 이미 지났으면 다음 달의 마지막 훈련 요일
+// 그 달 말일 (달력상 마지막 날)
+function lastDayOfMonth(year, month0) {
+  return new Date(year, month0 + 1, 0).toISOString().slice(0, 10);
+}
+// 팀 만료일: 등록일이 속한 달의 마지막 훈련 요일까지 (팀별 요일 기준)
 function teamExpiry(start, dow) {
   if (!start || dow == null) return "";
-  const d = new Date(start); const y = d.getFullYear(), m = d.getMonth();
-  let exp = lastDowOfMonth(y, m, dow);
-  if (exp < start) { const nd = new Date(y, m + 1, 1); exp = lastDowOfMonth(nd.getFullYear(), nd.getMonth(), dow); }
-  return exp;
+  const d = new Date(start);
+  return lastDowOfMonth(d.getFullYear(), d.getMonth(), dow);
 }
 // 정규반 만료일: 시작일 + 개월 − 1일 + 홀딩 누적일수
 function regularExpiry(start, period, holdDays = 0) {
@@ -1476,9 +1478,20 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
       )}
 
       {member.id && (f.enrollments || []).length > 0 && (
-        <Field label="현재 등록 현황 (조회 · 만료일 보정)">
-          <div style={{ fontSize: 11, color: C.dim2, marginBottom: 8 }}>유료 재등록은 회원 카드의 '결제'에서 하세요. 여기는 무료 연장·보정용입니다.</div>
-          {(f.enrollments || []).map((k) => <TermCard key={k} k={k} />)}
+        <Field label="현재 등록 현황">
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {(f.enrollments || []).map((k) => {
+              const t = f.terms?.[k] || {}; const st = termStatus(t);
+              return (
+                <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.bg }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: tColor(k), borderRadius: 5, padding: "2px 8px" }}>{k}</span>
+                  <span style={{ fontSize: 12, color: C.dim, flex: 1 }}>{t.expiry ? `~${t.expiry}` : "기간 미설정"}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: st.color }}>{st.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: C.dim2, marginTop: 8, lineHeight: 1.6 }}>등록·변경·취소는 회원 카드의 <b style={{ color: C.gold }}>'결제'</b>에서 하세요. (결제하면 등록, 결제 기록을 지우면 등록도 취소)</div>
         </Field>
       )}
       <Field label="상태"><select style={inp} value={f.status} onChange={(e) => set("status", e.target.value)}>{STATUSES.map((s) => <option key={s}>{s}</option>)}</select></Field>
@@ -2125,12 +2138,29 @@ function PaymentModal({ data, persist, member, onClose }) {
     const enrollKey = kind === "정규반" ? ses : (kind === "팀" ? teamName : null);
     if (enrollKey) {
       const teamDays = data.teamDays || DEFAULT_TEAM_DAYS;
+      const before = (data.members.find((m) => m.id === member.id) || {});
+      // 삭제 시 되돌리기용 스냅샷: 이 결제가 만든 등록 정보
+      rec.enroll = {
+        key: enrollKey,
+        wasEnrolled: (before.enrollments || []).includes(enrollKey),
+        prevTerm: (before.terms || {})[enrollKey] ? JSON.parse(JSON.stringify(before.terms[enrollKey])) : null,
+      };
       members = data.members.map((m) => {
         if (m.id !== member.id) return m;
         const enrollments = (m.enrollments || []).includes(enrollKey) ? m.enrollments : [...(m.enrollments || []), enrollKey];
         const terms = { ...(m.terms || {}) };
         const cur = terms[enrollKey] || { holds: [], history: [] };
-        terms[enrollKey] = renewTerm(enrollKey, cur, teamDays, kind === "정규반" ? period : undefined);
+        if (kind === "팀") {
+          // 팀: 결제일이 속한 달의 마지막 훈련 요일까지. 이미 그 달까지 유효하면 다음 달 마지막 훈련 요일로 연장
+          const teamDow = (teamDays || DEFAULT_TEAM_DAYS)[enrollKey];
+          const pd = new Date(payDate || todayStr());
+          let exp = lastDowOfMonth(pd.getFullYear(), pd.getMonth(), teamDow);
+          if (exp < (payDate || todayStr())) { const nd = new Date(pd.getFullYear(), pd.getMonth() + 1, 1); exp = lastDowOfMonth(nd.getFullYear(), nd.getMonth(), teamDow); }
+          if (cur.expiry && cur.expiry >= exp) { const nd = new Date(exp); nd.setDate(nd.getDate() + 1); const n2 = new Date(nd.getFullYear(), nd.getMonth(), 1); exp = lastDowOfMonth(n2.getFullYear(), n2.getMonth(), teamDow); }
+          terms[enrollKey] = { ...cur, start: cur.start || (payDate || todayStr()), expiry: exp, history: [...(cur.history || []), { at: todayStr(), until: exp }] };
+        } else {
+          terms[enrollKey] = renewTerm(enrollKey, cur, teamDays, period);
+        }
         const status = (m.status === "정지중" || m.status === "휴식중") ? "활동중" : m.status;
         return { ...m, enrollments, terms, status };
       });
@@ -2147,7 +2177,7 @@ function PaymentModal({ data, persist, member, onClose }) {
 
   return (
     <Modal title={`${member.name} 결제 / 등록`} onClose={onClose}>
-      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14, lineHeight: 1.6 }}>결제하면 재무에 수입으로 기록되고, <b style={{ color: C.gold }}>정규반·팀은 수강 기간이 자동 연장</b>됩니다.</div>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 14, lineHeight: 1.6 }}>결제하면 재무 기록 + 반·팀 등록·기간이 <b style={{ color: C.gold }}>함께</b> 생깁니다. 아래 기록을 <b style={{ color: C.gold }}>삭제하면 등록·기간도 함께 취소</b>됩니다.</div>
 
       <Field label="등록 종류">{chipRow(["정규반", "팀", "기타"], kind, setKind)}</Field>
 
@@ -2218,7 +2248,29 @@ function PaymentModal({ data, persist, member, onClose }) {
                       <span style={{ flex: 1, color: "#dadae0", lineHeight: 1.4 }}>{(f.memo || "").replace(member.name + " · ", "") || f.cat}</span>
                       <span style={{ fontFamily: DISP, fontWeight: 700, color: "#3fa86a", whiteSpace: "nowrap" }}>{won(f.amount)}</span>
                       <button onClick={() => setEditRec({ ...f })} style={iconBtn}><Pencil size={12} /></button>
-                      <button onClick={() => { if (confirm("이 결제 기록을 삭제할까요? (수강 기간은 자동으로 줄지 않습니다)")) persist({ ...data, finance: data.finance.filter((x) => x.id !== f.id) }); }} style={iconBtn}><Trash2 size={12} /></button>
+                      <button onClick={() => {
+                        const hasEnroll = f.enroll && f.enroll.key;
+                        const msg = hasEnroll
+                          ? `이 결제를 삭제할까요?\n\n· 재무 기록 삭제\n· '${f.enroll.key}' 등록/기간도 이 결제 이전 상태로 되돌립니다.`
+                          : "이 결제 기록을 삭제할까요?";
+                        if (!confirm(msg)) return;
+                        let members = data.members;
+                        if (hasEnroll) {
+                          members = data.members.map((m) => {
+                            if (m.id !== member.id) return m;
+                            const terms = { ...(m.terms || {}) };
+                            let enrollments = m.enrollments || [];
+                            if (f.enroll.wasEnrolled && f.enroll.prevTerm) {
+                              terms[f.enroll.key] = f.enroll.prevTerm; // 이전 기간으로 복원
+                            } else {
+                              delete terms[f.enroll.key]; // 이 결제로 처음 등록된 거면 등록 제거
+                              enrollments = enrollments.filter((x) => x !== f.enroll.key);
+                            }
+                            return { ...m, enrollments, terms };
+                          });
+                        }
+                        persist({ ...data, members, finance: data.finance.filter((x) => x.id !== f.id) });
+                      }} style={iconBtn}><Trash2 size={12} /></button>
                     </div>
                   ))}
                 </div>
