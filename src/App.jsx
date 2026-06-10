@@ -389,18 +389,19 @@ function termStatus(t) {
   return { label: `D-${days}`, color: "#3fa86a", days };
 }
 // 재등록: 팀=다음 달 마지막 훈련일 / 정규반=현재 만료 다음날부터 새 기간 연장(홀딩 초기화)
-function renewTerm(k, t, teamDays, newPeriod) {
+// asOf: 등록 기준일(시작일). 기존 회원 과거 등록을 올릴 때 결제일=시작일로 넘기면 그 날 기준으로 기간·만료가 잡힘 (기본=오늘)
+function renewTerm(k, t, teamDays, newPeriod, asOf = todayStr()) {
   if (isTeam(k)) {
-    const baseExp = t.expiry || todayStr();
+    const baseExp = t.expiry || asOf;
     const d = new Date(baseExp); d.setDate(d.getDate() + 1); // 만료 다음날 = 다음 달 진입
     const nd = new Date(d.getFullYear(), d.getMonth() + 1, 1);
     const expiry = lastDowOfMonth(nd.getFullYear(), nd.getMonth(), (teamDays || DEFAULT_TEAM_DAYS)[k]);
-    return { ...t, expiry, history: [...(t.history || []), { at: todayStr(), until: expiry }] };
+    return { ...t, expiry, expiryManual: false, history: [...(t.history || []), { at: asOf, until: expiry }] };
   }
   const period = newPeriod || t.period;
-  const base = (t.expiry && t.expiry >= todayStr()) ? (() => { const d = new Date(t.expiry); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })() : todayStr();
+  const base = (t.expiry && t.expiry >= asOf) ? (() => { const d = new Date(t.expiry); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })() : asOf;
   const expiry = regularExpiry(base, period, 0);
-  return { ...t, start: base, period, expiry, holds: [], history: [...(t.history || []), { at: todayStr(), from: base, period, until: expiry }] };
+  return { ...t, start: base, period, expiry, expiryManual: false, holds: [], history: [...(t.history || []), { at: asOf, from: base, period, until: expiry }] };
 }
 
 function weekDates(base) {
@@ -482,7 +483,8 @@ function normalize(d) {
     e.forEach((k) => {
       if (!terms[k]) terms[k] = { start: m.joinDate || "", period: "", holds: [], history: [] };
       if (!terms[k].holds) terms[k].holds = [];
-      terms[k].expiry = computeExpiry(k, terms[k], tdays);
+      // 만료일을 직접 지정(expiryManual)한 경우는 보존, 그 외엔 시작일+기간으로 재계산
+      if (!terms[k].expiryManual || !terms[k].expiry) terms[k].expiry = computeExpiry(k, terms[k], tdays);
     });
     Object.keys(terms).forEach((k) => { if (!e.includes(k)) delete terms[k]; });
     // 자동 정지: 활동중인데 등록이 있고 유효한 수강권이 하나도 없으면 정지중 (복귀는 수동)
@@ -1360,7 +1362,8 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
   });
   const setTerm = (k, key, val) => setF((p) => {
     const t = { ...(p.terms?.[k] || {}) }; t[key] = val;
-    if (key !== "expiry") t.expiry = computeExpiry(k, t, teamDays); // 만료일 직접수정은 그대로 둠
+    if (key === "expiry") t.expiryManual = true; // 만료일 직접수정 → 잠금(재계산 안 함, 새로고침에도 보존)
+    else { t.expiry = computeExpiry(k, t, teamDays); t.expiryManual = false; } // 시작일·기간 변경 → 만료일 자동 재계산
     return { ...p, terms: { ...p.terms, [k]: t } };
   });
   const renew = (k, newPeriod) => setF((p) => ({ ...p, terms: { ...p.terms, [k]: renewTerm(k, p.terms[k], teamDays, newPeriod) } }));
@@ -1432,20 +1435,17 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
           </div>
         )}
 
-        {!team && (
-          <div style={{ marginTop: 9 }}>
-            <div style={{ fontSize: 10, color: C.dim2, marginBottom: 3 }}>만료일 (무료 조정용 · 직접 수정)</div>
-            <input type="date" style={{ ...inp, padding: "8px 10px", fontSize: 13 }} value={t.expiry || ""} onChange={(e) => setTerm(k, "expiry", e.target.value)} />
-            <div style={{ fontSize: 10, color: C.dim2, marginTop: 5 }}>유료 재등록은 회원 카드의 '결제'에서 하세요. 여기는 무료 연장·보정용입니다.</div>
+        <div style={{ marginTop: 9 }}>
+          <div style={{ fontSize: 10, color: C.dim2, marginBottom: 3 }}>
+            만료일 (직접 수정 · D-day 기준){t.expiryManual && <span style={{ color: C.gold, fontWeight: 700 }}> · 고정됨</span>}
           </div>
-        )}
-        {team && (
-          <div style={{ marginTop: 9 }}>
-            <div style={{ fontSize: 10, color: C.dim2, marginBottom: 3 }}>만료일 (무료 조정용 · 직접 수정)</div>
-            <input type="date" style={{ ...inp, padding: "8px 10px", fontSize: 13 }} value={t.expiry || ""} onChange={(e) => setTerm(k, "expiry", e.target.value)} />
-            <div style={{ fontSize: 10, color: C.dim2, marginTop: 5 }}>유료 재등록은 '결제'에서 하세요. 여기는 무료 보정용입니다.</div>
+          <input type="date" style={{ ...inp, padding: "8px 10px", fontSize: 13 }} value={t.expiry || ""} onChange={(e) => setTerm(k, "expiry", e.target.value)} />
+          <div style={{ fontSize: 10, color: C.dim2, marginTop: 5, lineHeight: 1.6 }}>
+            {t.expiryManual
+              ? <>만료일을 직접 지정해 <b style={{ color: C.gold }}>고정</b>했습니다. 시작일을 작년으로 두고 만료일만 따로 잡아도 그대로 유지됩니다. (시작일·기간을 바꾸면 자동 재계산으로 돌아갑니다)</>
+              : <>{team ? "기본은 매월 마지막 훈련일까지" : "기본은 시작일+기간으로 자동 계산"}됩니다. 기존 회원이라 만료일을 따로 잡아야 하면 여기서 직접 입력하세요(고정). 유료 재등록은 회원 카드의 '결제'에서.</>}
           </div>
-        )}
+        </div>
         {(t.history || []).length > 0 && <div style={{ fontSize: 10, color: C.dim2, marginTop: 7 }}>재등록 {t.history.length}회 · 최근 {t.history[t.history.length - 1].at}</div>}
       </div>
     );
@@ -2174,7 +2174,7 @@ function PaymentModal({ data, persist, member, onClose }) {
           if (cur.expiry && cur.expiry >= exp) { const nd = new Date(exp); nd.setDate(nd.getDate() + 1); const n2 = new Date(nd.getFullYear(), nd.getMonth(), 1); exp = lastDowOfMonth(n2.getFullYear(), n2.getMonth(), teamDow); }
           terms[enrollKey] = { ...cur, start: cur.start || (payDate || todayStr()), expiry: exp, history: [...(cur.history || []), { at: todayStr(), until: exp }] };
         } else {
-          terms[enrollKey] = renewTerm(enrollKey, cur, teamDays, period);
+          terms[enrollKey] = renewTerm(enrollKey, cur, teamDays, period, payDate || todayStr());
         }
         const status = (m.status === "정지중" || m.status === "휴식중") ? "활동중" : m.status;
         return { ...m, enrollments, terms, status };
@@ -2196,7 +2196,10 @@ function PaymentModal({ data, persist, member, onClose }) {
 
       <Field label="등록 종류">{chipRow(["정규반", "팀", "기타"], kind, setKind)}</Field>
 
-      <Field label="결제일"><input type="date" style={inp} value={payDate} onChange={(e) => setPayDate(e.target.value)} /></Field>
+      <Field label="결제일 · 수강 시작일">
+        <input type="date" style={inp} value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+        <div style={{ fontSize: 11, color: C.dim2, marginTop: 5, lineHeight: 1.6 }}>이 날짜 기준으로 <b style={{ color: C.gold }}>수강 기간·만료일(D-day)과 매출 날짜</b>가 잡힙니다. 기존 회원의 과거 등록을 올릴 때는 <b style={{ color: C.gold }}>실제 등록했던 날짜</b>로 바꿔 주세요. (오늘이 아니어도 됩니다)</div>
+      </Field>
 
       {kind === "정규반" && (
         <>
