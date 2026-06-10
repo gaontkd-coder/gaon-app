@@ -1477,21 +1477,36 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
         </div>
       )}
 
-      {member.id && (f.enrollments || []).length > 0 && (
-        <Field label="현재 등록 현황">
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {(f.enrollments || []).map((k) => {
-              const t = f.terms?.[k] || {}; const st = termStatus(t);
-              return (
-                <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.bg }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: tColor(k), borderRadius: 5, padding: "2px 8px" }}>{k}</span>
-                  <span style={{ fontSize: 12, color: C.dim, flex: 1 }}>{t.expiry ? `~${t.expiry}` : "기간 미설정"}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: st.color }}>{st.label}</span>
-                </div>
-              );
-            })}
+      {member.id && (
+        <Field label="반·팀 등록 및 수강 기간">
+          <div style={{ fontSize: 11, color: C.dim2, marginBottom: 10, lineHeight: 1.6 }}>
+            등록할 반·팀을 선택하고, 각 항목의 <b style={{ color: C.gold }}>시작일·기간·만료일</b>을 직접 수정할 수 있어요. (유료 재등록·매출 기록은 회원 카드의 <b style={{ color: C.gold }}>'결제'</b>에서)
           </div>
-          <div style={{ fontSize: 11, color: C.dim2, marginTop: 8, lineHeight: 1.6 }}>등록·변경·취소는 회원 카드의 <b style={{ color: C.gold }}>'결제'</b>에서 하세요. (결제하면 등록, 결제 기록을 지우면 등록도 취소)</div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: C.dim2, marginBottom: 5 }}>정규반</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {SESSIONS.map((s) => (
+                <button type="button" key={s} onClick={() => toggle(s)}
+                  style={{ ...pill, color: has(s) ? "#1a1305" : C.dim, background: has(s) ? C.goldGrad : "transparent", borderColor: has(s) ? "transparent" : C.line }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: C.dim2, marginBottom: 5 }}>팀</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {TEAMS.map((s) => (
+                <button type="button" key={s} onClick={() => toggle(s)}
+                  style={{ ...pill, color: "#fff", background: has(s) ? tColor(s) : "transparent", borderColor: has(s) ? "transparent" : C.line, opacity: has(s) ? 1 : 0.6 }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          {[...SESSIONS, ...TEAMS].filter(has).length === 0
+            ? <div style={{ fontSize: 12, color: C.dim2 }}>선택된 반·팀이 없습니다. 위에서 등록할 반·팀을 선택하세요.</div>
+            : [...SESSIONS, ...TEAMS].filter(has).map((k) => <TermCard key={k} k={k} />)}
         </Field>
       )}
       <Field label="상태"><select style={inp} value={f.status} onChange={(e) => set("status", e.target.value)}>{STATUSES.map((s) => <option key={s}>{s}</option>)}</select></Field>
