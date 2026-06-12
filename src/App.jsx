@@ -508,6 +508,18 @@ function normalize(d) {
       if (!terms[k].expiryManual || !terms[k].expiry) terms[k].expiry = computeExpiry(k, terms[k], tdays);
     });
     Object.keys(terms).forEach((k) => { if (!e.includes(k)) delete terms[k]; });
+    // ── 출석부 필드(시작일·종료일·등록개월) → 현재 반 수강권 자동 변환 ──
+    // 앱 결제로 이미 기간이 잡힌 수강권은 보존하고, 기간 미설정(출석부 기반)일 때만 채움.
+    const sess = e.find((x) => SESSIONS.includes(x));
+    if (sess && m.startDate) {
+      const t0 = terms[sess] || {};
+      const untouched = !t0.period && !t0.expiryManual && !(t0.history && t0.history.length);
+      if (untouched) {
+        const period = (m.regMonths != null && m.regMonths !== "") ? `${m.regMonths}개월` : (t0.period || "");
+        const expiry = m.endDate || (PERIOD_MONTHS[period] ? regularExpiry(m.startDate, period, 0) : (t0.expiry || ""));
+        terms[sess] = { ...t0, start: m.startDate, period, expiry, expiryManual: !!m.endDate, holds: t0.holds || [], history: t0.history || [] };
+      }
+    }
     // 자동 정지: 활동중인데 등록이 있고 유효한 수강권이 하나도 없으면 정지중 (복귀는 수동)
     let status = m.status;
     if (status === "활동중" && e.length > 0) {
@@ -1507,6 +1519,12 @@ function AttInfoRows({ member }) {
 function MemberDetailModal({ member, onClose }) {
   const [open, setOpen] = useState("basic"); // 기본정보만 처음 펼침
   const dash = (v) => (v === "" || v == null) ? "-" : v;
+  // 현재 반(오전/오후/통합)의 수강권 → 등록기간·D-day
+  const sess = (member.enrollments || []).find((x) => SESSIONS.includes(x));
+  const term = sess ? member.terms?.[sess] : null;
+  const st = termStatus(term);
+  const regPeriod = term && term.start && term.expiry ? `${term.start} ~ ${term.expiry}` : "-";
+  const stNode = st.days == null ? "-" : <span style={{ color: st.color, fontWeight: 800 }}>{st.days < 0 ? "만료" : st.label}{sess ? ` · ${sess}` : ""}</span>;
   const sections = [
     { key: "basic", title: "기본정보", rows: [
       { k: "이름", v: dash(member.name) },
@@ -1514,6 +1532,8 @@ function MemberDetailModal({ member, onClose }) {
       { k: "전화", v: dash(member.phone), mono: true },
       { k: "반", v: (member.enrollments || []).join(", ") || "-" },
       { k: "상태", v: dash(member.status) },
+      { k: "등록기간", v: regPeriod, mono: true },
+      { k: "수강권", v: stNode },
     ] },
     { key: "train", title: "수련정보", rows: [
       { k: "띠", v: attDisp("belt", member.belt) },
@@ -1606,7 +1626,7 @@ function MembersAdmin({ data, persist, canEdit = true, canFinance = false }) {
       `되돌릴 수 없습니다. 계속할까요?`
     );
     if (!ok) return;
-    persist({ ...data, members: seed }); // members만 교체 — admins/classes/teamDays 등은 그대로 보존
+    persist(normalize({ ...data, members: seed })); // members 교체 + 출석부 필드→수강권(terms) 변환
     alert(`완료: 회원 ${seed.length}명을 불러왔습니다.`);
   };
   const badge = (s) => ({ 활동중: C.gold, 휴식중: "#5a9bd8", 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
