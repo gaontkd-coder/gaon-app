@@ -1296,8 +1296,8 @@ function MembersAdmin({ data, persist, canEdit = true, canFinance = false }) {
             style={{ flex: 1, background: "transparent", border: "none", color: C.text, padding: "12px 0", outline: "none", fontSize: 14, fontFamily: FONT }} />
         </div>
         {canEdit && <button onClick={() => setEdit({ name: "", phone: "", enrollments: [], status: "활동중", general: true, instructor: false, joinDate: new Date().toISOString().slice(0, 10) })} style={btnGold}><Plus size={16} /> 추가</button>}
-        {canEdit && <button onClick={importMembers} style={{ ...btnGold, background: "transparent", border: `1px solid ${C.gold}`, color: C.gold }} title="출석부 회원 일괄 가져오기 (1회용)"><Download size={16} /> 출석부 가져오기</button>}
       </div>
+      {canEdit && <button onClick={importMembers} style={{ ...btnGold, width: "100%", justifyContent: "center", marginBottom: 12, background: "transparent", border: `2px solid ${C.gold}`, color: C.gold, fontSize: 15 }}><Download size={17} /> 출석부 회원 1,957명 가져오기 (최초 1회)</button>}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
         <span style={{ fontSize: 11, color: C.dim2, alignSelf: "center", marginRight: 2, flexShrink: 0 }}>구분</span>
         {GROUP_FILTERS.map((fl) => (
