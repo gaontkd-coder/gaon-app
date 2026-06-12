@@ -3,6 +3,7 @@ import {
   Users, CalendarCheck, LayoutDashboard, Plus, Search, Trash2, Pencil,
   X, Check, Copy, ChevronLeft, ChevronRight, LogOut, Shield, User,
   Megaphone, BookOpen, Lock, Flame, Award, KeyRound, Trophy, Medal, Star, BadgeCheck, Download, ClipboardList, Ticket, Video, CalendarX,
+  PieChart, TrendingUp, Activity, Globe, MapPin, Wallet,
 } from "lucide-react";
 import membersSeed from "../members_seed.json"; // 출석부 시드 (회원 명단 일괄 가져오기)
 
@@ -139,6 +140,7 @@ const PERM = {
   finance: ["director"],
   locker: ["director"],
   training: ["director"],
+  stats: ["director"],
 };
 const can = (role, key) => (PERM[key] || []).includes(role);
 // 휴무 판정: 전체 휴무(only 없음) 또는 특정 수업만 휴무(only에 포함)
@@ -735,6 +737,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
   // 관장 전용 영역 (운영·재무·관리자)
   const ownerTabs = [
     ...(can(admin.role, "training") ? [["training", "운영", Flame]] : []),
+    ...(can(admin.role, "stats") ? [["stats", "통계", PieChart]] : []),
     ...(can(admin.role, "finance") ? [["finance", "재무", Ticket]] : []),
     ...(can(admin.role, "accounts") ? [["accounts", "관리자", KeyRound]] : []),
   ];
@@ -750,6 +753,7 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
       {tab === "videos" && <VideosView data={data} persist={persist} admin={can(admin.role, "classes")} />}
       {tab === "notice" && <NoticeAdmin data={data} persist={persist} canEdit={can(admin.role, "notice")} />}
       {tab === "training" && can(admin.role, "training") && <OperationsView data={data} />}
+      {tab === "stats" && can(admin.role, "stats") && <StatsView data={data} />}
       {tab === "schedule" && <ScheduleView data={data} persist={persist} canEdit={can(admin.role, "schedule")} />}
       {tab === "finance" && can(admin.role, "finance") && <FinanceView data={data} persist={persist} />}
       {tab === "accounts" && can(admin.role, "accounts") && <AdminAccounts data={data} persist={persist} me={admin} />}
@@ -838,8 +842,8 @@ function Dashboard({ data, wide, setTab, role, admin, ownerTabs = [] }) {
     { id: "notice", label: "공지", Ic: Megaphone },
     { id: "schedule", label: "지도진", Ic: CalendarCheck },
   ];
-  const ownerIcons = { training: Flame, finance: Ticket, accounts: KeyRound };
-  const ownerSubs = { training: "통계 · 현황 분석", finance: "수입·지출·월급·가격", accounts: "사범 계정 관리" };
+  const ownerIcons = { training: Flame, stats: PieChart, finance: Ticket, accounts: KeyRound };
+  const ownerSubs = { training: "통계 · 현황 분석", stats: "회원 통계·분포 분석", finance: "수입·지출·월급·가격", accounts: "사범 계정 관리" };
 
   const today = todayStr();
   const dow = dowOf(today);
@@ -1250,6 +1254,192 @@ function TeamDetail({ data, team, unit, setUnit, onBack }) {
           </div>
         ))}
       </Panel>
+    </div>
+  );
+}
+
+// ═══════════ 통계 (관장 전용) ═══════════
+// 모두 data.members 배열만으로 계산. 외부 라이브러리 없이 막대/도넛.
+const STAT_COLORS = ["#d8b45a", "#5a9bd8", "#3fa86a", "#c97f8a", "#9a7be0", "#c89042", "#5fc0c0", "#d87a5a", "#7a8ad8", "#a0c060", "#cf6aa0", "#6ac0a0"];
+const krwShort = (v) => v >= 1e8 ? (v / 1e8).toFixed(v >= 1e9 ? 0 : 1) + "억" : v >= 1e4 ? Math.round(v / 1e4).toLocaleString() + "만" : String(Math.round(v));
+
+function MiniBar({ label, n, max, color, valueText }) {
+  return (
+    <div style={{ marginBottom: 11 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, marginBottom: 5 }}>
+        <span style={{ fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{label}</span>
+        <span style={{ color: "#d8d8de", fontWeight: 700, fontFamily: DISP, flexShrink: 0 }}>{valueText ?? n}</span>
+      </div>
+      <div style={{ height: 8, background: "#202028", borderRadius: 5, overflow: "hidden" }}>
+        <div style={{ width: `${Math.max(2, (n / max) * 100)}%`, height: "100%", background: color || C.goldGrad, borderRadius: 5 }} />
+      </div>
+    </div>
+  );
+}
+function BarList({ data, suffix = "명", caption }) {
+  if (!data.length) return <Empty>데이터가 없습니다.</Empty>;
+  const max = Math.max(1, ...data.map((d) => d.n));
+  return (
+    <div>
+      {data.map((d, i) => <MiniBar key={d.label + i} label={d.label} n={d.n} max={max} color={d.color || C.goldGrad} valueText={`${d.n.toLocaleString()}${suffix}`} />)}
+      {caption && <div style={{ fontSize: 11, color: C.dim2, marginTop: 4 }}>{caption}</div>}
+    </div>
+  );
+}
+function Donut({ data, centerUnit = "명" }) {
+  const total = data.reduce((s, d) => s + d.n, 0) || 1;
+  let acc = 0;
+  const stops = data.map((d) => { const s = (acc / total) * 360; acc += d.n; const e = (acc / total) * 360; return `${d.color} ${s}deg ${e}deg`; }).join(", ");
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+      <div style={{ width: 120, height: 120, borderRadius: "50%", background: `conic-gradient(${stops})`, position: "relative", flexShrink: 0 }}>
+        <div style={{ position: "absolute", inset: 15, borderRadius: "50%", background: C.card, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ fontFamily: DISP, fontSize: 23, fontWeight: 700, color: C.text }}>{total.toLocaleString()}</span>
+          <span style={{ fontSize: 10, color: C.dim }}>{centerUnit}</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 140 }}>
+        {data.map((d) => (
+          <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 11, height: 11, borderRadius: 3, background: d.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 13, flex: 1, color: C.text }}>{d.label}</span>
+            <span style={{ fontFamily: DISP, fontWeight: 700, fontSize: 13, color: C.text }}>{d.n.toLocaleString()}</span>
+            <span style={{ fontSize: 11, color: C.dim, width: 40, textAlign: "right" }}>{Math.round((d.n / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+const SumCard = ({ label, value, sub, accent }) => (
+  <div style={{ position: "relative", background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "15px 14px", overflow: "hidden" }}>
+    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: C.goldGrad, opacity: accent ? 1 : 0.18 }} />
+    <div style={{ fontSize: 11.5, color: C.dim, marginBottom: 7 }}>{label}</div>
+    <div style={{ fontFamily: DISP, fontSize: 23, fontWeight: 700, lineHeight: 1.1, ...(accent ? { background: C.goldGrad, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" } : { color: C.text }) }}>{value}</div>
+    {sub && <div style={{ fontSize: 11, color: C.dim2, marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
+  </div>
+);
+// 상위 N개 + 나머지 '기타' 묶음 (빈 값 제외)
+const topNWithEtc = (M, key, n = 12) => {
+  const cnt = {};
+  M.forEach((m) => { const v = (m[key] || "").trim(); if (v) cnt[v] = (cnt[v] || 0) + 1; });
+  const sorted = Object.entries(cnt).sort((a, b) => b[1] - a[1]);
+  const top = sorted.slice(0, n).map(([label, c]) => ({ label, n: c }));
+  const etc = sorted.slice(n).reduce((s, [, c]) => s + c, 0);
+  if (etc > 0) top.push({ label: `기타 (${sorted.length - n}종)`, n: etc, color: "#4a4a52" });
+  const empty = M.filter((m) => !(m[key] || "").trim()).length;
+  return { data: top, empty, distinct: sorted.length };
+};
+
+function StatsView({ data }) {
+  const [open, setOpen] = useState(null);
+  const M = data.members || [];
+  const total = M.length;
+  const active = M.filter((m) => m.status === "활동중").length;
+  const newThis = M.filter((m) => (m.joinDate || "").slice(0, 7) === ym()).length;
+  const paidSum = M.reduce((s, m) => s + (Number(m.totalPaid) || 0), 0);
+  const male = M.filter((m) => m.gender === "남").length;
+  const female = M.filter((m) => m.gender === "여").length;
+  const mfTotal = male + female || 1;
+  const malePct = Math.round((male / mfTotal) * 100);
+  const femPct = 100 - malePct;
+  const withNation = M.filter((m) => (m.nation || "").trim());
+  const foreign = withNation.filter((m) => m.nation !== "한국").length;
+  const foreignPct = withNation.length ? Math.round((foreign / withNation.length) * 100) : 0;
+
+  // ── 드릴다운 데이터 ──
+  const byYear = {};
+  M.forEach((m) => { const y = (m.joinDate || "").slice(0, 4); if (y) byYear[y] = (byYear[y] || 0) + 1; });
+  const growthData = Object.keys(byYear).sort().map((y) => ({ label: y, n: byYear[y] }));
+
+  const statusColor = { 활동중: "#3fa86a", 휴식중: "#5a9bd8", 정지중: "#c89042", 탈퇴: "#a23b3b" };
+  const statusData = STATUSES.map((s) => ({ label: s, n: M.filter((m) => m.status === s).length, color: statusColor[s] })).filter((d) => d.n > 0);
+
+  const beltCnt = {};
+  M.forEach((m) => { const b = (m.belt || "").trim(); if (b) beltCnt[b] = (beltCnt[b] || 0) + 1; });
+  const beltData = Object.entries(beltCnt).sort((a, b) => b[1] - a[1]).map(([label, n], i) => ({ label, n, color: STAT_COLORS[i % STAT_COLORS.length] }));
+  const beltEmpty = M.filter((m) => !(m.belt || "").trim()).length;
+
+  const classData = SESSIONS.map((s, i) => ({ label: s, n: M.filter((m) => (m.enrollments || []).includes(s)).length, color: STAT_COLORS[i] }));
+  const teamData = TEAMS.map((t) => ({ label: t, n: M.filter((m) => (m.enrollments || []).includes(t)).length, color: tColor(t) }));
+
+  const inflow = topNWithEtc(M, "inflow", 12);
+  // address: 첫 토큰(구 단위)로 재집계
+  const regionCnt = {};
+  M.forEach((m) => { const g = ((m.address || "").trim().split(/\s+/)[0]) || ""; if (g) regionCnt[g] = (regionCnt[g] || 0) + 1; });
+  const regionSorted = Object.entries(regionCnt).sort((a, b) => b[1] - a[1]);
+  const regionData = regionSorted.slice(0, 12).map(([label, n]) => ({ label, n }));
+  const regionEtc = regionSorted.slice(12).reduce((s, [, n]) => s + n, 0);
+  if (regionEtc > 0) regionData.push({ label: `기타 (${regionSorted.length - 12}곳)`, n: regionEtc, color: "#4a4a52" });
+  const regionEmpty = M.filter((m) => !((m.address || "").trim())).length;
+
+  const topPay = [...M].filter((m) => (Number(m.totalPaid) || 0) > 0).sort((a, b) => (Number(b.totalPaid) || 0) - (Number(a.totalPaid) || 0)).slice(0, 20);
+  const topPayMax = Math.max(1, ...topPay.map((m) => Number(m.totalPaid) || 0));
+
+  const items = [
+    { key: "growth", title: "회원 증감", desc: "연도별 입관 인원", icon: TrendingUp, render: () => <BarList data={growthData} /> },
+    { key: "status", title: "상태 분포", desc: "활동중 · 탈퇴 등", icon: Activity, render: () => <Donut data={statusData} /> },
+    { key: "belt", title: "띠 분포", desc: "기록된 띠 기준", icon: Award, render: () => <BarList data={beltData} caption={`미입력 ${beltEmpty.toLocaleString()}명 제외`} /> },
+    { key: "class", title: "반 분포", desc: "오전 · 오후 · 통합", icon: BookOpen, render: () => <BarList data={classData} /> },
+    { key: "team", title: "전문팀", desc: "GDT · GST · GPT", icon: Trophy, render: () => <BarList data={teamData} /> },
+    { key: "inflow", title: "유입 경로", desc: `상위 12종 · 전체 ${inflow.distinct}종`, icon: Globe, render: () => <BarList data={inflow.data} caption={`미입력 ${inflow.empty.toLocaleString()}명 제외`} /> },
+    { key: "region", title: "지역 분포", desc: "주소 구 단위", icon: MapPin, render: () => <BarList data={regionData} caption={`미입력 ${regionEmpty.toLocaleString()}명 제외`} /> },
+    { key: "toppay", title: "누적 결제 TOP 20", desc: "totalPaid 상위", icon: Wallet, render: () => (
+      topPay.length === 0 ? <Empty>결제 기록이 없습니다.</Empty> : (
+        <div>
+          {topPay.map((m, i) => (
+            <div key={m.id ?? i} style={{ marginBottom: 11 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 5 }}>
+                <span style={{ fontFamily: DISP, fontWeight: 700, color: C.gold, width: 22, flexShrink: 0 }}>{i + 1}</span>
+                <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{m.name}</span>
+                <span style={{ fontSize: 11, color: C.dim2, flexShrink: 0 }}>{(m.payCount || 0)}회</span>
+                <span style={{ fontFamily: DISP, fontWeight: 700, color: "#d8d8de", flexShrink: 0 }}>{(Number(m.totalPaid) || 0).toLocaleString()}원</span>
+              </div>
+              <div style={{ height: 8, background: "#202028", borderRadius: 5, overflow: "hidden" }}>
+                <div style={{ width: `${Math.max(2, ((Number(m.totalPaid) || 0) / topPayMax) * 100)}%`, height: "100%", background: C.goldGrad, borderRadius: 5 }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )
+    ) },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span style={{ fontSize: 17, fontWeight: 800 }}>통계</span>
+        <span style={{ fontSize: 11, color: "#9a7be0", fontWeight: 700, border: "1px solid #3a2f55", borderRadius: 6, padding: "2px 7px" }}>관장 전용</span>
+      </div>
+      <div style={{ fontSize: 12, color: C.dim2, marginBottom: 16 }}>회원 명단 기준 · 항목을 누르면 상세 차트가 펼쳐집니다</div>
+
+      {/* 현재 상황 요약 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 11, marginBottom: 20 }}>
+        <SumCard label="활동 회원" value={`${active.toLocaleString()}명`} sub={`전체 ${total.toLocaleString()}명`} accent />
+        <SumCard label="이번달 신규 입관" value={`+${newThis.toLocaleString()}`} sub={ym()} />
+        <SumCard label="누적 결제액" value={`${krwShort(paidSum)}원`} sub={`${paidSum.toLocaleString()}원`} />
+        <SumCard label="남 / 녀 비율" value={`${malePct} : ${femPct}`} sub={`남 ${male.toLocaleString()} · 여 ${female.toLocaleString()}`} />
+        <SumCard label="외국인 비율" value={`${foreignPct}%`} sub={`외국 ${foreign.toLocaleString()} · 국내 ${(withNation.length - foreign).toLocaleString()}`} />
+      </div>
+
+      {/* 항목 드릴다운 */}
+      {items.map((it) => {
+        const on = open === it.key;
+        const Ic = it.icon;
+        return (
+          <div key={it.key} style={{ background: C.card, border: `1px solid ${on ? C.gold : C.line}`, borderRadius: 14, marginBottom: 10, overflow: "hidden" }}>
+            <button onClick={() => setOpen(on ? null : it.key)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "15px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", fontFamily: FONT }}>
+              <span style={{ width: 38, height: 38, borderRadius: 10, background: "#181206", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Ic size={18} color={C.gold} /></span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 14.5, fontWeight: 700, color: C.text }}>{it.title}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: C.dim2, marginTop: 2 }}>{it.desc}</span>
+              </span>
+              <ChevronRight size={18} color={on ? C.gold : C.dim} style={{ transform: on ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} />
+            </button>
+            {on && <div style={{ padding: "2px 16px 18px" }}>{it.render()}</div>}
+          </div>
+        );
+      })}
     </div>
   );
 }
