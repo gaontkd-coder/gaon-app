@@ -1505,23 +1505,52 @@ function AttInfoRows({ member }) {
   ));
 }
 function MemberDetailModal({ member, onClose }) {
-  const badge = (s) => ({ 활동중: C.gold, 휴식중: "#5a9bd8", 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
+  const [open, setOpen] = useState("basic"); // 기본정보만 처음 펼침
+  const dash = (v) => (v === "" || v == null) ? "-" : v;
+  const sections = [
+    { key: "basic", title: "기본정보", rows: [
+      { k: "이름", v: dash(member.name) },
+      { k: "회원번호", v: dash(member.no), mono: true },
+      { k: "전화", v: dash(member.phone), mono: true },
+      { k: "반", v: (member.enrollments || []).join(", ") || "-" },
+      { k: "상태", v: dash(member.status) },
+    ] },
+    { key: "train", title: "수련정보", rows: [
+      { k: "띠", v: attDisp("belt", member.belt) },
+      { k: "단", v: attDisp("dan", member.dan) },
+      { k: "입관일", v: dash(member.joinDate), mono: true },
+      { k: "시작일", v: attDisp("startDate", member.startDate), mono: true },
+      { k: "종료일", v: attDisp("endDate", member.endDate), mono: true },
+      { k: "재등록일", v: attDisp("reRegDate", member.reRegDate), mono: true },
+      { k: "등록개월", v: attDisp("regMonths", member.regMonths), mono: true },
+    ] },
+    { key: "pay", title: "결제정보", rows: [
+      { k: "누적결제액", v: attDisp("totalPaid", member.totalPaid), mono: true },
+      { k: "결제횟수", v: attDisp("payCount", member.payCount), mono: true },
+      { k: "결제방법", v: attDisp("payment", member.payment) },
+    ] },
+    { key: "att", title: "출석부 상세", rows: [
+      { k: "성별", v: attDisp("gender", member.gender) },
+      { k: "국적", v: attDisp("nation", member.nation) },
+      { k: "사는곳", v: attDisp("address", member.address) },
+      { k: "유입방법", v: attDisp("inflow", member.inflow) },
+      { k: "비고", v: attDisp("memo", member.memo) },
+    ] },
+  ];
   return (
     <Modal title={`${member.instructor ? "★ " : ""}${member.name}`} onClose={onClose}>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
-        <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{member.general ? "내부" : "외부"}</span>
-        <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(member.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{member.status}</span>
-        <span style={{ fontSize: 12, color: C.dim2, fontFamily: DISP, letterSpacing: 0.3 }}>{member.no} · {member.phone}</span>
-      </div>
-      {(member.enrollments || []).length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 16 }}>
-          {(member.enrollments || []).map((e) => (
-            <span key={e} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "3px 7px" }}>{e}</span>
-          ))}
-        </div>
-      )}
-      <div style={{ fontSize: 13, fontWeight: 800, color: C.gold, marginBottom: 2 }}>출석부 정보</div>
-      <AttInfoRows member={member} />
+      {sections.map((s) => {
+        const on = open === s.key;
+        return (
+          <div key={s.key} style={{ border: `1px solid ${on ? C.gold : C.line}`, borderRadius: 12, marginBottom: 9, overflow: "hidden" }}>
+            <button onClick={() => setOpen(on ? null : s.key)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "13px 14px", background: on ? "#181206" : "transparent", border: "none", cursor: "pointer", fontFamily: FONT }}>
+              <span style={{ fontSize: 14, fontWeight: 800, color: on ? C.gold : C.text, flex: 1, textAlign: "left" }}>{s.title}</span>
+              <ChevronRight size={17} color={on ? C.gold : C.dim} style={{ transform: on ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+            </button>
+            {on && <div style={{ padding: "0 14px 6px" }}>{s.rows.map((r) => <InfoRow key={r.k} k={r.k} v={r.v} mono={r.mono} />)}</div>}
+          </div>
+        );
+      })}
     </Modal>
   );
 }
