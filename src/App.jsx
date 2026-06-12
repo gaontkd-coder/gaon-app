@@ -3,7 +3,7 @@ import {
   Users, CalendarCheck, LayoutDashboard, Plus, Search, Trash2, Pencil,
   X, Check, Copy, ChevronLeft, ChevronRight, LogOut, Shield, User,
   Megaphone, BookOpen, Lock, Flame, Award, KeyRound, Trophy, Medal, Star, BadgeCheck, Download, ClipboardList, Ticket, Video, CalendarX,
-  TrendingUp, Globe, MapPin, Wallet, RefreshCw,
+  TrendingUp, Globe, MapPin, Wallet, RefreshCw, Filter,
 } from "lucide-react";
 import membersSeed from "../members_seed.json"; // 출석부 시드 (회원 명단 일괄 가져오기)
 
@@ -991,29 +991,24 @@ function BarChart({ rows, color, isYear }) {
   );
 }
 
-// ── 운영 (전체 현황 + 팀 드릴다운) ──
+// ── 운영 (전체 현황 + 다기준 필터 분석) ──
 function OperationsView({ data }) {
   const [unit, setUnit] = useState("month"); // month | year
   const [team, setTeam] = useState(null);    // 팀 상세
-  const [filter, setFilter] = useState("전체");
-  const [panel, setPanel] = useState("members"); // 카드 선택: members | new | train | team
+  const [panel, setPanel] = useState("members"); // 운영 상세 카드: members | new | train | team
   const [memDetail, setMemDetail] = useState(null); // 회원 기록 상세
-  const [scope, setScope] = useState("전체"); // 회원 통계 기간 스코프: 전체 | 특정 연/월
   const [statOpen, setStatOpen] = useState(null); // 회원 통계 드릴다운 펼침
+  const [F, setF] = useState({}); // 다기준 필터(AND) — { group:[], class:[], team:[], status:[], gender:[], nation:[], belt:[], region:[], year:[] }
+  const [filterOpen, setFilterOpen] = useState(false);
   const isYear = unit === "year";
   const periods = isYear ? activeYears(data) : recentMonths(6);
-
-  const active = data.members.filter((m) => m.status === "활동중");
-  const newThis = data.members.filter((m) => (m.joinDate || "").slice(0, 7) === ym()).length;
-  const trainThis = data.members.reduce((n, m) => n + trainMonth(data, m.id), 0);
-  const teamCount = active.filter((m) => (m.enrollments || []).some(isTeam)).length;
 
   if (team) return <TeamDetail data={data} team={team} unit={unit} setUnit={setUnit} onBack={() => setTeam(null)} />;
   if (memDetail) {
     const m = data.members.find((x) => x.id === memDetail) || {};
     return (
       <div>
-        <button onClick={() => setMemDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 순위로</button>
+        <button onClick={() => setMemDetail(null)} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 14, padding: 0 }}><ChevronLeft size={16} /> 뒤로</button>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
           <span style={{ fontSize: 18, fontWeight: 800 }}>{m.instructor && <span style={{ color: C.gold }}>★</span>}{m.name}</span>
           <span style={{ fontSize: 12, color: C.dim2, fontFamily: DISP }}>{m.no}</span>
@@ -1031,24 +1026,64 @@ function OperationsView({ data }) {
     );
   }
 
-  const FILTERS = [
-    { k: "전체", t: () => true }, { k: "내부", t: (m) => m.general },
-    { k: "외부", t: (m) => !m.general }, { k: "지도진", t: (m) => m.instructor },
-    { k: "시범단", t: (m) => (m.enrollments || []).includes("GDT(시범단)") },
-    { k: "겨루기", t: (m) => (m.enrollments || []).includes("GST(겨루기)") },
-    { k: "품새", t: (m) => (m.enrollments || []).includes("GPT(품새)") },
+  // ── 필터 정의 + 옵션 도출 ──
+  const allM = data.members;
+  const beltOpts = Object.entries(allM.reduce((c, m) => { const b = (m.belt || "").trim(); if (b) c[b] = (c[b] || 0) + 1; return c; }, {})).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  const regionOpts = Object.entries(allM.reduce((c, m) => { const g = ((m.address || "").trim().split(/\s+/)[0]) || ""; if (g) c[g] = (c[g] || 0) + 1; return c; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([k]) => k);
+  const yearOpts = [...new Set(allM.map((m) => (m.joinDate || "").slice(0, 4)).filter(Boolean))].sort().reverse();
+  const FDEFS = [
+    { key: "group", label: "구분", opts: ["내부", "외부", "지도진"], match: (m, v) => v === "내부" ? !!m.general : v === "외부" ? !m.general : !!m.instructor },
+    { key: "class", label: "반", opts: SESSIONS, match: (m, v) => (m.enrollments || []).includes(v) },
+    { key: "team", label: "전문팀", opts: TEAMS, short: (v) => v.replace(/\(.*\)/, ""), match: (m, v) => (m.enrollments || []).includes(v) },
+    { key: "status", label: "상태", opts: STATUSES, match: (m, v) => m.status === v },
+    { key: "gender", label: "성별", opts: ["남", "여"], match: (m, v) => m.gender === v },
+    { key: "nation", label: "국적", opts: ["내국인", "외국인"], match: (m, v) => { const n = (m.nation || "").trim(); return v === "내국인" ? n === "한국" : (n !== "" && n !== "한국"); } },
+    { key: "belt", label: "띠", opts: beltOpts, match: (m, v) => (m.belt || "").trim() === v },
+    { key: "region", label: "지역", opts: regionOpts, match: (m, v) => ((m.address || "").trim().split(/\s+/)[0]) === v },
+    { key: "year", label: "입관연도", opts: yearOpts, match: (m, v) => (m.joinDate || "").slice(0, 4) === v },
   ];
-  const tf = (FILTERS.find((x) => x.k === filter) || FILTERS[0]).t;
-  const rows = data.members.filter((m) => m.status !== "탈퇴").filter(tf)
-    .map((m) => ({ m, total: trainTotal(data, m.id), month: trainMonth(data, m.id) })).sort((a, b) => b.total - a.total);
-  const max = Math.max(1, ...rows.map((r) => r.total));
+  const toggleF = (key, v) => setF((p) => { const cur = p[key] || []; return { ...p, [key]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] }; });
+  const clearF = () => setF({});
+  // AND(카테고리 간) · OR(카테고리 내) 결합
+  const FM = allM.filter((m) => FDEFS.every((d) => { const sel = F[d.key]; return !sel || !sel.length || sel.some((v) => d.match(m, v)); }));
+  const activeChips = FDEFS.flatMap((d) => (F[d.key] || []).map((v) => ({ key: d.key, v, show: `${d.label}·${d.short ? d.short(v) : v}` })));
+  const hasFilter = activeChips.length > 0;
 
-  const newRows = newMembersByPeriod(data, periods, isYear);
-  const trainRows = trainByPeriod(data, periods, isYear);
+  // ── 필터 대상(FM) 기준 통계 ──
+  const active = FM.filter((m) => m.status === "활동중");
+  const leftCnt = FM.filter((m) => m.status === "탈퇴").length;
+  const newThis = FM.filter((m) => (m.joinDate || "").slice(0, 7) === ym()).length;
+  const trainThis = FM.reduce((n, m) => n + trainMonth(data, m.id), 0);
+  const teamCount = active.filter((m) => (m.enrollments || []).some(isTeam)).length;
+  const male = FM.filter((m) => m.gender === "남").length;
+  const female = FM.filter((m) => m.gender === "여").length;
+  const femPct = Math.round((female / (male + female || 1)) * 100);
+  const withNat = FM.filter((m) => (m.nation || "").trim());
+  const foreign = withNat.filter((m) => m.nation !== "한국").length;
+  const foreignPct = withNat.length ? Math.round((foreign / withNat.length) * 100) : 0;
+  const sumCards = [
+    { label: "해당 인원", value: `${FM.length.toLocaleString()}명`, sub: hasFilter ? `${activeChips.length}개 필터 적용` : "전체 회원", accent: true },
+    { label: "활동중 / 탈퇴", value: `${active.length.toLocaleString()} / ${leftCnt.toLocaleString()}`, sub: "명" },
+    { label: "이번달 신규", value: `+${newThis.toLocaleString()}`, sub: ym() },
+    { label: "팀 인원", value: `${teamCount.toLocaleString()}명`, sub: "활동중 · 팀 소속" },
+    { label: "누적 결제액", value: `${krwShort(FM.reduce((s, m) => s + (Number(m.totalPaid) || 0), 0))}원`, sub: `${FM.reduce((s, m) => s + (Number(m.totalPaid) || 0), 0).toLocaleString()}원` },
+    { label: "남 / 녀 비율", value: `${100 - femPct} : ${femPct}`, sub: `남 ${male.toLocaleString()} · 여 ${female.toLocaleString()}` },
+    { label: "외국인 비율", value: `${foreignPct}%`, sub: `외국 ${foreign.toLocaleString()} · 국내 ${(withNat.length - foreign).toLocaleString()}` },
+  ];
+
+  // 운영 상세(출석 기반) — FM 적용
+  const cumul = periods.map((p) => ({ p, n: FM.filter((m) => (m.joinDate || "").slice(0, isYear ? 4 : 7) <= p).length }));
+  const newRows = periods.map((p) => ({ p, n: FM.filter((m) => (m.joinDate || "").slice(0, isYear ? 4 : 7) === p).length }));
+  const leftRows = periods.map((p) => ({ p, n: FM.filter((m) => m.status === "탈퇴" && (m.endDate || "").slice(0, isYear ? 4 : 7) === p).length }));
+  const trainRows = trainByPeriod(data, periods, isYear, FM.map((m) => m.id));
+  const rankRows = [...FM].map((m) => ({ m, total: trainTotal(data, m.id), month: trainMonth(data, m.id) })).sort((a, b) => b.total - a.total).slice(0, 60);
+  const rankMax = Math.max(1, ...rankRows.map((r) => r.total));
   const teamRows = TEAMS.map((t) => ({ t, n: active.filter((m) => (m.enrollments || []).includes(t)).length }));
   const teamMax = Math.max(1, ...teamRows.map((r) => r.n));
-  const newList = data.members.filter((m) => (m.joinDate || "").slice(0, 7) === ym()).sort((a, b) => (b.joinDate || "").localeCompare(a.joinDate || ""));
-
+  const newList = FM.filter((m) => (m.joinDate || "").slice(0, 7) === ym()).sort((a, b) => (b.joinDate || "").localeCompare(a.joinDate || ""));
+  const internal = active.filter((m) => m.general).length;
+  const external = active.length - internal;
+  const paused = FM.filter((m) => m.status === "정지중").length;
   const cards = [
     { k: "members", label: "활동 회원", value: active.length, unit: "명" },
     { k: "new", label: "이번달 신규", value: `+${newThis}`, unit: "명" },
@@ -1056,49 +1091,24 @@ function OperationsView({ data }) {
     { k: "team", label: "팀 인원", value: teamCount, unit: "명" },
   ];
 
-  // ───── 회원 데이터 통계 (data.members 기반, 운영 탭 통합) ─────
-  const M = data.members;
-  const paidSumAll = M.reduce((s, m) => s + (Number(m.totalPaid) || 0), 0);
-  const maleAll = M.filter((m) => m.gender === "남").length;
-  const femaleAll = M.filter((m) => m.gender === "여").length;
-  const femPctAll = Math.round((femaleAll / (maleAll + femaleAll || 1)) * 100);
-  const withNat = M.filter((m) => (m.nation || "").trim());
-  const foreignAll = withNat.filter((m) => m.nation !== "한국").length;
-  const foreignPctAll = withNat.length ? Math.round((foreignAll / withNat.length) * 100) : 0;
-  const sumCards = [
-    { label: "활동 회원", value: `${active.length.toLocaleString()}명`, sub: `전체 ${M.length.toLocaleString()}명`, accent: true },
-    { label: "이번달 신규", value: `+${newThis.toLocaleString()}`, sub: ym() },
-    { label: "누적 결제액", value: `${krwShort(paidSumAll)}원`, sub: `${paidSumAll.toLocaleString()}원` },
-    { label: "팀 인원", value: `${teamCount.toLocaleString()}명`, sub: "활동중 · 팀 소속" },
-    { label: "남 / 녀 비율", value: `${100 - femPctAll} : ${femPctAll}`, sub: `남 ${maleAll.toLocaleString()} · 여 ${femaleAll.toLocaleString()}` },
-    { label: "외국인 비율", value: `${foreignPctAll}%`, sub: `외국 ${foreignAll.toLocaleString()} · 국내 ${(withNat.length - foreignAll).toLocaleString()}` },
-  ];
-
-  // 기간 스코프: 전체 또는 선택한 연/월에 입관한 코호트
-  const periodsDesc = [...periods].reverse();
-  const scopeMembers = scope === "전체" ? M : M.filter((m) => (m.joinDate || "").slice(0, isYear ? 4 : 7) === scope);
-  const scopeLabel = scope === "전체" ? "전체 기간" : periodLabel(scope, isYear);
-
-  // 증감 추이 (입관: 가입일 / 탈퇴: 탈퇴회원의 종료일 기준)
-  const leftRows = periods.map((p) => ({ p, n: M.filter((m) => m.status === "탈퇴" && (m.endDate || "").slice(0, isYear ? 4 : 7) === p).length }));
-
-  // 스코프 분포
-  const beltCnt = {};
-  scopeMembers.forEach((m) => { const b = (m.belt || "").trim(); if (b) beltCnt[b] = (beltCnt[b] || 0) + 1; });
+  // 회원 통계 분포 (FM)
+  const grpLabel = hasFilter ? "필터 그룹" : "전체";
+  const beltCnt = {}; FM.forEach((m) => { const b = (m.belt || "").trim(); if (b) beltCnt[b] = (beltCnt[b] || 0) + 1; });
   const beltData = Object.entries(beltCnt).sort((a, b) => b[1] - a[1]).map(([label, n], i) => ({ label, n, color: STAT_COLORS[i % STAT_COLORS.length] }));
-  const beltEmpty = scopeMembers.filter((m) => !(m.belt || "").trim()).length;
-  const classData = SESSIONS.map((s, i) => ({ label: s, n: scopeMembers.filter((m) => (m.enrollments || []).includes(s)).length, color: STAT_COLORS[i] }));
-  const teamDist = TEAMS.map((t) => ({ label: t, n: scopeMembers.filter((m) => (m.enrollments || []).includes(t)).length, color: tColor(t) }));
-  const inflowStat = topNWithEtc(scopeMembers, "inflow", 12);
-  const regionCnt = {};
-  scopeMembers.forEach((m) => { const g = ((m.address || "").trim().split(/\s+/)[0]) || ""; if (g) regionCnt[g] = (regionCnt[g] || 0) + 1; });
+  const beltEmpty = FM.filter((m) => !(m.belt || "").trim()).length;
+  const classData = SESSIONS.map((s, i) => ({ label: s, n: FM.filter((m) => (m.enrollments || []).includes(s)).length, color: STAT_COLORS[i] }));
+  const teamDist = TEAMS.map((t) => ({ label: t, n: FM.filter((m) => (m.enrollments || []).includes(t)).length, color: tColor(t) }));
+  const inflowStat = topNWithEtc(FM, "inflow", 12);
+  const regionCnt = {}; FM.forEach((m) => { const g = ((m.address || "").trim().split(/\s+/)[0]) || ""; if (g) regionCnt[g] = (regionCnt[g] || 0) + 1; });
   const regionSorted = Object.entries(regionCnt).sort((a, b) => b[1] - a[1]);
   const regionData = regionSorted.slice(0, 12).map(([label, n]) => ({ label, n }));
   const regionEtc = regionSorted.slice(12).reduce((s, [, n]) => s + n, 0);
   if (regionEtc > 0) regionData.push({ label: `기타 (${regionSorted.length - 12}곳)`, n: regionEtc, color: "#4a4a52" });
-  const regionEmpty = scopeMembers.filter((m) => !((m.address || "").trim())).length;
-  const scopePaid = scopeMembers.reduce((s, m) => s + (Number(m.totalPaid) || 0), 0);
-  const topPay = [...scopeMembers].filter((m) => (Number(m.totalPaid) || 0) > 0).sort((a, b) => (Number(b.totalPaid) || 0) - (Number(a.totalPaid) || 0)).slice(0, 20);
+  const regionEmpty = FM.filter((m) => !((m.address || "").trim())).length;
+  const paidSum = FM.reduce((s, m) => s + (Number(m.totalPaid) || 0), 0);
+  const payCntSum = FM.reduce((s, m) => s + (Number(m.payCount) || 0), 0);
+  const payerCnt = FM.filter((m) => (Number(m.totalPaid) || 0) > 0).length;
+  const topPay = [...FM].filter((m) => (Number(m.totalPaid) || 0) > 0).sort((a, b) => (Number(b.totalPaid) || 0) - (Number(a.totalPaid) || 0)).slice(0, 20);
   const topPayMax = Math.max(1, ...topPay.map((m) => Number(m.totalPaid) || 0));
 
   const statSections = [
@@ -1108,7 +1118,7 @@ function OperationsView({ data }) {
     { key: "team", title: "전문팀", desc: "GDT · GST · GPT", icon: Trophy },
     { key: "inflow", title: "유입 경로", desc: `전체 ${inflowStat.distinct}종`, icon: Globe },
     { key: "region", title: "지역 분포", desc: "주소 구 단위", icon: MapPin },
-    { key: "pay", title: "누적 결제", desc: "합계 · 상위 20명", icon: Wallet },
+    { key: "pay", title: "재무 · 누적 결제", desc: "합계 · 평균 · 상위 20명", icon: Wallet },
   ];
   const renderStat = (key) => {
     if (key === "growth") return (
@@ -1119,17 +1129,22 @@ function OperationsView({ data }) {
         <BarChart rows={leftRows} color="#a23b3b" isYear={isYear} />
       </>
     );
-    if (key === "belt") return <BarList data={beltData} caption={`미입력 ${beltEmpty.toLocaleString()}명 제외 · ${scopeLabel}`} />;
-    if (key === "class") return <BarList data={classData} caption={scopeLabel} />;
-    if (key === "team") return <BarList data={teamDist} caption={scopeLabel} />;
-    if (key === "inflow") return <BarList data={inflowStat.data} caption={`미입력 ${inflowStat.empty.toLocaleString()}명 제외 · ${scopeLabel}`} />;
-    if (key === "region") return <BarList data={regionData} caption={`미입력 ${regionEmpty.toLocaleString()}명 제외 · ${scopeLabel}`} />;
+    if (key === "belt") return <BarList data={beltData} caption={`미입력 ${beltEmpty.toLocaleString()}명 제외 · ${grpLabel}`} />;
+    if (key === "class") return <BarList data={classData} caption={grpLabel} />;
+    if (key === "team") return <BarList data={teamDist} caption={grpLabel} />;
+    if (key === "inflow") return <BarList data={inflowStat.data} caption={`미입력 ${inflowStat.empty.toLocaleString()}명 제외 · ${grpLabel}`} />;
+    if (key === "region") return <BarList data={regionData} caption={`미입력 ${regionEmpty.toLocaleString()}명 제외 · ${grpLabel}`} />;
     if (key === "pay") return (
       <>
-        <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: C.dim2 }}>{scopeLabel} 누적 결제액</div>
-          <div style={{ fontFamily: DISP, fontWeight: 800, fontSize: 22, color: C.gold, marginTop: 3 }}>{scopePaid.toLocaleString()}<span style={{ fontSize: 11, color: C.dim, fontFamily: FONT, marginLeft: 2 }}>원</span></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 12 }}>
+          {[["누적 결제액", `${paidSum.toLocaleString()}원`, C.gold], ["결제 인원", `${payerCnt.toLocaleString()}명`, C.text], ["결제 횟수 합", `${payCntSum.toLocaleString()}회`, C.text], ["결제자 인당 평균", `${(payerCnt ? Math.round(paidSum / payerCnt) : 0).toLocaleString()}원`, C.text]].map(([l, v, col]) => (
+            <div key={l} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px" }}>
+              <div style={{ fontSize: 11, color: C.dim2 }}>{l}</div>
+              <div style={{ fontFamily: DISP, fontWeight: 800, fontSize: 18, color: col, marginTop: 3 }}>{v}</div>
+            </div>
+          ))}
         </div>
+        <div style={{ fontSize: 12, color: C.dim, margin: "4px 0 8px" }}>누적 결제 상위 20명</div>
         {topPay.length === 0 ? <Empty>결제 기록이 없습니다.</Empty> : topPay.map((m, i) => (
           <div key={m.id ?? i} style={{ marginBottom: 11 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 5 }}>
@@ -1148,10 +1163,12 @@ function OperationsView({ data }) {
     return null;
   };
 
+  const fchip = (on) => ({ flexShrink: 0, padding: "5px 11px", borderRadius: 8, border: `1px solid ${on ? "transparent" : C.line}`, background: on ? C.goldGrad : "transparent", color: on ? "#1a1305" : C.dim, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" });
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
-        <span style={{ fontSize: 17, fontWeight: 800 }}>운영 현황</span>
+        <span style={{ fontSize: 17, fontWeight: 800 }}>운영 분석</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 5 }}>
           {[["month", "월별"], ["year", "연별"]].map(([v, l]) => (
             <button key={v} onClick={() => setUnit(v)} style={{ fontSize: 12, padding: "6px 13px", borderRadius: 9, border: `1px solid ${unit === v ? "transparent" : C.line}`, background: unit === v ? C.goldGrad : "transparent", color: unit === v ? "#1a1305" : C.dim, fontWeight: 700, cursor: "pointer" }}>{l}</button>
@@ -1159,12 +1176,45 @@ function OperationsView({ data }) {
         </div>
       </div>
 
-      {/* 현재 상황 요약 */}
+      {/* 필터 상태 바 (항상 표시) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: hasFilter ? 10 : 14 }}>
+        <span style={{ fontSize: 13, fontWeight: 800 }}>해당 <span style={{ color: C.gold, fontFamily: DISP, fontSize: 17 }}>{FM.length.toLocaleString()}</span>명</span>
+        <button onClick={() => setFilterOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 9, border: `1px solid ${filterOpen || hasFilter ? C.gold : C.line}`, background: filterOpen ? C.goldGrad : "transparent", color: filterOpen ? "#1a1305" : (hasFilter ? C.gold : C.dim), fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+          <Filter size={13} /> 필터{hasFilter ? ` ${activeChips.length}` : ""}
+        </button>
+        {hasFilter && <button onClick={clearF} style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}><X size={13} /> 초기화</button>}
+      </div>
+      {hasFilter && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          {activeChips.map((c) => (
+            <button key={c.key + c.v} onClick={() => toggleF(c.key, c.v)} title="제거" style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: `1px solid #5a4a22`, background: "#181206", color: C.gold, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>{c.show} <X size={12} /></button>
+          ))}
+        </div>
+      )}
+
+      {/* 필터 선택 패널 (펼침) */}
+      {filterOpen && (
+        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 14px 10px", marginBottom: 16 }}>
+          {FDEFS.map((d) => (
+            <div key={d.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: `1px solid ${C.line}` }}>
+              <span style={{ fontSize: 11.5, color: C.dim, width: 60, flexShrink: 0, fontWeight: 700 }}>{d.label}</span>
+              <div style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 2 }}>
+                {d.opts.length === 0 ? <span style={{ fontSize: 11, color: C.dim2 }}>데이터 없음</span> : d.opts.map((v) => (
+                  <button key={v} onClick={() => toggleF(d.key, v)} style={fchip((F[d.key] || []).includes(v))}>{d.short ? d.short(v) : v}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: 10.5, color: C.dim2, marginTop: 10, lineHeight: 1.6 }}>같은 항목 안에서는 여러 개를 고르면 그중 하나라도 해당(OR), 서로 다른 항목끼리는 모두 만족(AND)하는 회원만 집계됩니다.</div>
+        </div>
+      )}
+
+      {/* 현재 상황 요약 (필터 반영) */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 9, marginBottom: 18 }}>
         {sumCards.map((c) => <SumCard key={c.label} label={c.label} value={c.value} sub={c.sub} accent={c.accent} />)}
       </div>
 
-      <div style={{ fontSize: 13, fontWeight: 800, color: C.gold, margin: "0 2px 10px" }}>운영 상세</div>
+      <div style={{ fontSize: 13, fontWeight: 800, color: C.gold, margin: "0 2px 10px" }}>운영 상세{hasFilter ? " · 필터 적용" : ""}</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 7, marginBottom: 18 }}>
         {cards.map((c) => {
           const on = panel === c.k;
@@ -1179,37 +1229,21 @@ function OperationsView({ data }) {
 
       {panel === "members" && (
         <>
-          {(() => {
-            const cumul = periods.map((p) => ({ p, n: data.members.filter((m) => (m.joinDate || "").slice(0, isYear ? 4 : 7) <= p).length }));
-            const internal = active.filter((m) => m.general).length;
-            const external = active.length - internal;
-            const paused = data.members.filter((m) => m.status === "정지중").length;
-            const left = data.members.filter((m) => m.status === "탈퇴").length;
-            return (
-              <>
-                <Panel title={`회원 누적 추이 · ${isYear ? "연별" : "월별"}`} sub="가입일 기준 누적">
-                  <BarChart rows={cumul} color={C.gold} isYear={isYear} />
-                </Panel>
-                <Panel title="현재 구성">
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-                    {[["내부 회원", internal, C.gold], ["외부 회원", external, "#4d82d8"], ["정지중", paused, "#c89042"], ["탈퇴 누적", left, "#a23b3b"]].map(([l, v, col]) => (
-                      <div key={l} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px" }}>
-                        <div style={{ fontSize: 11, color: C.dim2 }}>{l}</div>
-                        <div style={{ fontFamily: DISP, fontWeight: 800, fontSize: 20, color: col, marginTop: 3 }}>{v}<span style={{ fontSize: 10, color: C.dim, fontFamily: FONT, marginLeft: 2 }}>명</span></div>
-                      </div>
-                    ))}
-                  </div>
-                </Panel>
-              </>
-            );
-          })()}
-          <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "0 0 14px", paddingBottom: 2 }}>
-            {FILTERS.map((fl) => (
-              <button key={fl.k} onClick={() => setFilter(fl.k)} style={{ flexShrink: 0, padding: "7px 14px", borderRadius: 9, border: `1px solid ${filter === fl.k ? "transparent" : C.line}`, background: filter === fl.k ? C.goldGrad : "transparent", color: filter === fl.k ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{fl.k}</button>
-            ))}
-          </div>
-          <Panel title={`회원별 수련 순위 · ${filter}`} sub="누적 출석 기준 · 회원을 누르면 상세 기록">
-            {rows.length === 0 ? <Empty>데이터가 없습니다.</Empty> : rows.map((r, i) => (
+          <Panel title={`회원 누적 추이 · ${isYear ? "연별" : "월별"}`} sub="가입일 기준 누적 (필터 반영)">
+            <BarChart rows={cumul} color={C.gold} isYear={isYear} />
+          </Panel>
+          <Panel title="현재 구성">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+              {[["내부 회원", internal, C.gold], ["외부 회원", external, "#4d82d8"], ["정지중", paused, "#c89042"], ["탈퇴 누적", leftCnt, "#a23b3b"]].map(([l, v, col]) => (
+                <div key={l} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px" }}>
+                  <div style={{ fontSize: 11, color: C.dim2 }}>{l}</div>
+                  <div style={{ fontFamily: DISP, fontWeight: 800, fontSize: 20, color: col, marginTop: 3 }}>{v}<span style={{ fontSize: 10, color: C.dim, fontFamily: FONT, marginLeft: 2 }}>명</span></div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+          <Panel title={`회원별 수련 순위${rankRows.length >= 60 ? " · 상위 60명" : ""}`} sub="누적 출석 기준 · 회원을 누르면 상세 기록">
+            {rankRows.length === 0 ? <Empty>해당 회원이 없습니다.</Empty> : rankRows.map((r, i) => (
               <div key={r.m.id} onClick={() => setMemDetail(r.m.id)} style={{ padding: "11px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
                   <span style={{ fontFamily: DISP, fontWeight: 700, color: i < 3 ? C.gold : C.dim2, minWidth: 20, fontSize: 15 }}>{i + 1}</span>
@@ -1220,7 +1254,7 @@ function OperationsView({ data }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ flex: 1, height: 7, background: "#202028", borderRadius: 5, overflow: "hidden" }}>
-                    <div style={{ width: `${(r.total / max) * 100}%`, height: "100%", background: C.goldGrad, borderRadius: 5 }} />
+                    <div style={{ width: `${(r.total / rankMax) * 100}%`, height: "100%", background: C.goldGrad, borderRadius: 5 }} />
                   </div>
                   <span style={{ fontSize: 11, color: C.dim2, minWidth: 60, textAlign: "right" }}>이번달 {r.month}회</span>
                 </div>
@@ -1232,7 +1266,7 @@ function OperationsView({ data }) {
 
       {panel === "new" && (
         <>
-          <Panel title={`신규 등록 인원 · ${isYear ? "연별" : "월별"}`} sub="가입일 기준">
+          <Panel title={`신규 등록 인원 · ${isYear ? "연별" : "월별"}`} sub="가입일 기준 (필터 반영)">
             <BarChart rows={newRows} color={C.gold} isYear={isYear} />
           </Panel>
           <Panel title={`이번달 신규 회원 · ${newList.length}명`} sub="누가 어디에 등록했는지">
@@ -1255,13 +1289,13 @@ function OperationsView({ data }) {
       )}
 
       {panel === "train" && (
-        <Panel title={`수련 참여 수 · ${isYear ? "연별" : "월별"}`} sub="출석 기준 (전체 합계)">
+        <Panel title={`수련 참여 수 · ${isYear ? "연별" : "월별"}`} sub="출석 기준 · 필터 그룹 합계">
           <BarChart rows={trainRows} color="#3fa86a" isYear={isYear} />
         </Panel>
       )}
 
       {panel === "team" && (
-        <Panel title="팀별 인원" sub="활동중 기준 · 탭하면 팀 상세">
+        <Panel title="팀별 인원" sub="활동중 · 필터 반영 · 탭하면 팀 상세">
           {teamRows.map((r) => (
             <button key={r.t} onClick={() => setTeam(r.t)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 0", background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
               <span style={{ fontSize: 13, color: C.text, minWidth: 84, textAlign: "left", fontWeight: 600 }}>{r.t.replace(/\(.*\)/, "")} <span style={{ fontSize: 10, color: C.dim2 }}>{r.t.match(/\((.*)\)/)?.[1]}</span></span>
@@ -1275,22 +1309,11 @@ function OperationsView({ data }) {
         </Panel>
       )}
 
-      {/* ───── 회원 통계 (data.members 기반 · 기간별) ───── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "24px 2px 10px" }}>
+      {/* ───── 회원 통계 (필터 그룹 분포) ───── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "24px 2px 12px" }}>
         <span style={{ fontSize: 13, fontWeight: 800, color: C.gold }}>회원 통계</span>
-        <span style={{ fontSize: 11, color: C.dim2 }}>회원 명단 기준 · {isYear ? "연별" : "월별"} · {scopeLabel}</span>
+        <span style={{ fontSize: 11, color: C.dim2 }}>{grpLabel} {FM.length.toLocaleString()}명 기준 · {isYear ? "연별" : "월별"}</span>
       </div>
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 14 }}>
-        {["전체", ...periodsDesc].map((p) => {
-          const on = scope === p;
-          return (
-            <button key={p} onClick={() => setScope(p)} style={{ flexShrink: 0, padding: "6px 13px", borderRadius: 9, border: `1px solid ${on ? "transparent" : C.line}`, background: on ? C.goldGrad : "transparent", color: on ? "#1a1305" : C.dim, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-              {p === "전체" ? "전체" : periodLabel(p, isYear)}
-            </button>
-          );
-        })}
-      </div>
-      {scope !== "전체" && <div style={{ fontSize: 11, color: C.dim2, margin: "0 2px 12px" }}>※ 분포·결제는 {scopeLabel}에 입관한 회원 {scopeMembers.length.toLocaleString()}명 기준 (증감 추이는 전체 기간 표시)</div>}
       {statSections.map((it) => {
         const on = statOpen === it.key;
         const Ic = it.icon;
