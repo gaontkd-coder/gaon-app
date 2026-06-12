@@ -4,6 +4,7 @@ import {
   X, Check, Copy, ChevronLeft, ChevronRight, LogOut, Shield, User,
   Megaphone, BookOpen, Lock, Flame, Award, KeyRound, Trophy, Medal, Star, BadgeCheck, Download, ClipboardList, Ticket, Video, CalendarX,
 } from "lucide-react";
+import membersSeed from "../members_seed.json"; // 출석부 시드 (회원 명단 일괄 가져오기)
 
 // 배포 환경에서 브라우저 로컬 백업(window.storage가 없으면 localStorage 사용)
 if (typeof window !== "undefined" && !window.storage) {
@@ -1272,6 +1273,19 @@ function MembersAdmin({ data, persist, canEdit = true, canFinance = false }) {
     persist(next); setEdit(null);
   };
   const remove = (id) => { if (confirm("회원 데이터를 완전히 삭제할까요? (탈퇴 처리는 상태 변경 권장)")) persist({ ...data, members: data.members.filter((x) => x.id !== id) }); };
+  const importAttendance = () => {
+    const seed = Array.isArray(membersSeed) ? membersSeed : (membersSeed.members || []);
+    if (!seed.length) { alert("출석부 파일(members_seed.json)에서 회원을 찾지 못했습니다."); return; }
+    const ok = confirm(
+      `출석부에서 회원 ${seed.length}명을 불러옵니다.\n\n` +
+      `현재 회원 명단 ${data.members.length}명은 모두 이 데이터로 교체됩니다.\n` +
+      `(사범 계정 · 수업 · 팀 설정은 그대로 유지됩니다)\n\n` +
+      `되돌릴 수 없습니다. 계속할까요?`
+    );
+    if (!ok) return;
+    persist({ ...data, members: seed }); // members만 교체 — admins/classes/teamDays 등은 그대로 보존
+    alert(`완료: 회원 ${seed.length}명을 불러왔습니다.`);
+  };
   const badge = (s) => ({ 활동중: C.gold, 휴식중: "#5a9bd8", 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
 
   return (
@@ -1284,6 +1298,12 @@ function MembersAdmin({ data, persist, canEdit = true, canFinance = false }) {
         </div>
         {canEdit && <button onClick={() => setEdit({ name: "", phone: "", enrollments: [], status: "활동중", general: true, instructor: false, joinDate: new Date().toISOString().slice(0, 10) })} style={btnGold}><Plus size={16} /> 추가</button>}
       </div>
+      {canEdit && (
+        <button onClick={importAttendance} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 9, width: "100%", marginBottom: 14, padding: "13px 16px", background: C.goldGrad, color: "#1a1305", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 800, cursor: "pointer", boxShadow: "0 3px 14px rgba(216,180,90,0.28)", fontFamily: FONT }}>
+          <ClipboardList size={18} /> 출석부 가져오기
+          <span style={{ fontSize: 11, fontWeight: 700, opacity: 0.7 }}>· 회원 명단 전체 교체</span>
+        </button>
+      )}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
         <span style={{ fontSize: 11, color: C.dim2, alignSelf: "center", marginRight: 2, flexShrink: 0 }}>구분</span>
         {GROUP_FILTERS.map((fl) => (
