@@ -47,6 +47,25 @@ const DEFAULT_TEAM_DAYS = { "GDT(시범단)": 5, "GST(겨루기)": 6, "GPT(품�
 const HOLD_LIMITS = { "1개월": { days: 7, count: 1 }, "3개월": { days: 30, count: 2 }, "6개월": { days: 60, count: 3 }, "1년": { days: 90, count: 4 } };
 const TEAMS = ["GDT(시범단)", "GST(겨루기)", "GPT(품새)"];
 const STATUSES = ["활동중", "휴식중", "정지중", "탈퇴"];
+// ── 출석부 상세 필드 (회원 객체에 이미 들어있는 부가 정보) ──
+const ATT_FIELDS = [
+  { key: "belt", label: "띠" }, { key: "dan", label: "단" },
+  { key: "gender", label: "성별" }, { key: "nation", label: "국적" },
+  { key: "address", label: "사는곳" }, { key: "inflow", label: "유입방법" },
+  { key: "payment", label: "결제방법" }, { key: "startDate", label: "시작일" },
+  { key: "endDate", label: "종료일" }, { key: "reRegDate", label: "재등록일" },
+  { key: "regMonths", label: "등록개월" }, { key: "totalPaid", label: "누적결제액" },
+  { key: "payCount", label: "결제횟수" }, { key: "memo", label: "비고" },
+];
+const ATT_MONO = ["startDate", "endDate", "reRegDate", "regMonths", "totalPaid", "payCount"];
+// 빈 값('' · null · undefined)은 '-' 로 표시
+const attDisp = (key, v) => {
+  if (v === "" || v == null) return "-";
+  if (key === "totalPaid") return Number(v).toLocaleString() + "원";
+  if (key === "regMonths") return v + "개월";
+  if (key === "payCount") return v + "회";
+  return v;
+};
 // ── 가격표 (관리자 수정 가능, 단위 원) ──
 const DEFAULT_PRICING = {
   // 정규반 1개월
@@ -988,6 +1007,9 @@ function OperationsView({ data }) {
           <Stat label="이번달" value={trainMonth(data, m.id)} unit="회" />
           <Stat label="경력" value={(m.history || []).length} unit="건" />
         </Grid3>
+        <Panel title="출석부 정보" sub="회원 출석부에서 가져온 상세 정보">
+          <AttInfoRows member={m} />
+        </Panel>
         <MemberTrainRecord data={data} mid={m.id} />
       </div>
     );
@@ -1232,10 +1254,38 @@ function TeamDetail({ data, team, unit, setUnit, onBack }) {
   );
 }
 
+// ── 출석부 상세 정보 (상세보기 공용) ──
+function AttInfoRows({ member }) {
+  return ATT_FIELDS.map((fld) => (
+    <InfoRow key={fld.key} k={fld.label} v={attDisp(fld.key, member[fld.key])} mono={ATT_MONO.includes(fld.key)} />
+  ));
+}
+function MemberDetailModal({ member, onClose }) {
+  const badge = (s) => ({ 활동중: C.gold, 휴식중: "#5a9bd8", 정지중: "#c89042", 탈퇴: "#56565e" }[s]);
+  return (
+    <Modal title={`${member.instructor ? "★ " : ""}${member.name}`} onClose={onClose}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
+        <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{member.general ? "내부" : "외부"}</span>
+        <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(member.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{member.status}</span>
+        <span style={{ fontSize: 12, color: C.dim2, fontFamily: DISP, letterSpacing: 0.3 }}>{member.no} · {member.phone}</span>
+      </div>
+      {(member.enrollments || []).length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 16 }}>
+          {(member.enrollments || []).map((e) => (
+            <span key={e} style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "3px 7px" }}>{e}</span>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 13, fontWeight: 800, color: C.gold, marginBottom: 2 }}>출석부 정보</div>
+      <AttInfoRows member={member} />
+    </Modal>
+  );
+}
 function MembersAdmin({ data, persist, canEdit = true, canFinance = false }) {
   const [payFor, setPayFor] = useState(null);
   const [q, setQ] = useState(""); const [edit, setEdit] = useState(null); const [hist, setHist] = useState(null);
   const [vouchMember, setVouchMember] = useState(null);
+  const [detail, setDetail] = useState(null);
   const [gFilter, setGFilter] = useState("전체");
   const [sFilter, setSFilter] = useState("전체");
   const GROUP_FILTERS = [
@@ -1324,26 +1374,28 @@ function MembersAdmin({ data, persist, canEdit = true, canFinance = false }) {
           const actBtn = { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "8px 0", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.dim, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT };
           return (
             <div key={m.id} style={{ padding: "14px 15px", borderBottom: `1px solid ${C.line}` }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                {m.instructor && <span style={{ color: C.gold }}>★</span>}
-                <span style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</span>
-                <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{m.general ? "내부" : "외부"}</span>
-                <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(m.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{m.status}</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: "auto", fontFamily: DISP, color: C.gold, fontWeight: 700 }}><Flame size={13} />{trainTotal(data, m.id)}</span>
-              </div>
-              <div style={{ fontSize: 11, color: C.dim2, marginTop: 5, fontFamily: DISP, letterSpacing: 0.3 }}>{m.no} · {m.phone}</div>
-              {(m.enrollments || []).length > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginTop: 9 }}>
-                  {(m.enrollments || []).map((e) => {
-                    const st = termStatus(m.terms?.[e]);
-                    return (
-                      <span key={e} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "3px 7px" }}>
-                        {e}{st.days !== null && <span style={{ fontSize: 9, color: st.color === "#3fa86a" ? "#dfffe9" : "#1a1305", background: st.color, borderRadius: 3, padding: "0 4px" }}>{st.label}</span>}
-                      </span>
-                    );
-                  })}
+              <div onClick={() => setDetail(m)} style={{ cursor: "pointer" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  {m.instructor && <span style={{ color: C.gold }}>★</span>}
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</span>
+                  <span style={{ fontSize: 9, color: C.dim, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{m.general ? "내부" : "외부"}</span>
+                  <span style={{ fontSize: 10, color: "#0b0b0e", background: badge(m.status), borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>{m.status}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: "auto", fontFamily: DISP, color: C.gold, fontWeight: 700 }}><Flame size={13} />{trainTotal(data, m.id)}</span>
                 </div>
-              )}
+                <div style={{ fontSize: 11, color: C.dim2, marginTop: 5, fontFamily: DISP, letterSpacing: 0.3 }}>{m.no} · {m.phone}</div>
+                {(m.enrollments || []).length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginTop: 9 }}>
+                    {(m.enrollments || []).map((e) => {
+                      const st = termStatus(m.terms?.[e]);
+                      return (
+                        <span key={e} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#fff", background: tColor(e), borderRadius: 5, padding: "3px 7px" }}>
+                          {e}{st.days !== null && <span style={{ fontSize: 9, color: st.color === "#3fa86a" ? "#dfffe9" : "#1a1305", background: st.color, borderRadius: 3, padding: "0 4px" }}>{st.label}</span>}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <div style={{ display: "flex", gap: 6, marginTop: 11 }}>
                 <button onClick={() => setHist(m)} style={actBtn}><Award size={14} /> 경력</button>
                 {canFinance && <button onClick={() => setPayFor(m)} style={{ ...actBtn, color: "#3fa86a", borderColor: "#2a5a3e" }}><Ticket size={14} /> 결제</button>}
@@ -1355,6 +1407,7 @@ function MembersAdmin({ data, persist, canEdit = true, canFinance = false }) {
           );
         })}
       </div>
+      {detail && <MemberDetailModal member={data.members.find((x) => x.id === detail.id) || detail} onClose={() => setDetail(null)} />}
       {edit && <MemberForm member={edit} previewNo={edit.id ? edit.no : nextNo()} teamDays={data.teamDays} onSave={save} onClose={() => setEdit(null)} />}
       {hist && <HistoryManager member={hist} onSave={(mem) => { save(mem); setHist(null); }} onClose={() => setHist(null)} />}
       {vouchMember && <MemberVoucherModal data={data} persist={persist} member={data.members.find((x) => x.id === vouchMember.id) || vouchMember} onClose={() => setVouchMember(null)} />}
@@ -1531,6 +1584,30 @@ function MemberForm({ member, previewNo, onSave, onClose, teamDays }) {
       )}
       <Field label="상태"><select style={inp} value={f.status} onChange={(e) => set("status", e.target.value)}>{STATUSES.map((s) => <option key={s}>{s}</option>)}</select></Field>
       <Field label="회원 가입일"><input type="date" style={inp} value={f.joinDate} onChange={(e) => set("joinDate", e.target.value)} /></Field>
+
+      <div style={{ borderTop: `1px solid ${C.line}`, margin: "20px 0 14px", paddingTop: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: C.gold, marginBottom: 3 }}>출석부 상세 정보</div>
+        <div style={{ fontSize: 11, color: C.dim2, marginBottom: 14, lineHeight: 1.6 }}>출석부에서 가져온 부가 정보예요. 비워 두면 상세보기에 '-'로 표시됩니다.</div>
+        <Field label="띠"><input style={inp} value={f.belt || ""} onChange={(e) => set("belt", e.target.value)} placeholder="예: 검정띠" /></Field>
+        <Field label="단"><input style={inp} value={f.dan || ""} onChange={(e) => set("dan", e.target.value)} placeholder="예: 1단" /></Field>
+        <Field label="성별">
+          <select style={inp} value={f.gender || ""} onChange={(e) => set("gender", e.target.value)}>
+            <option value="">미설정</option><option value="남">남</option><option value="여">여</option>
+          </select>
+        </Field>
+        <Field label="국적"><input style={inp} value={f.nation || ""} onChange={(e) => set("nation", e.target.value)} placeholder="예: 한국" /></Field>
+        <Field label="사는곳"><input style={inp} value={f.address || ""} onChange={(e) => set("address", e.target.value)} placeholder="예: 마포구 서교동" /></Field>
+        <Field label="유입방법"><input style={inp} value={f.inflow || ""} onChange={(e) => set("inflow", e.target.value)} placeholder="예: 지인소개" /></Field>
+        <Field label="결제방법"><input style={inp} value={f.payment || ""} onChange={(e) => set("payment", e.target.value)} placeholder="예: 카드" /></Field>
+        <Field label="시작일"><input type="date" style={inp} value={f.startDate || ""} onChange={(e) => set("startDate", e.target.value)} /></Field>
+        <Field label="종료일"><input type="date" style={inp} value={f.endDate || ""} onChange={(e) => set("endDate", e.target.value)} /></Field>
+        <Field label="재등록일"><input type="date" style={inp} value={f.reRegDate || ""} onChange={(e) => set("reRegDate", e.target.value)} /></Field>
+        <Field label="등록개월"><input type="number" style={inp} value={f.regMonths ?? ""} onChange={(e) => set("regMonths", e.target.value === "" ? "" : Number(e.target.value))} placeholder="예: 3" /></Field>
+        <Field label="누적결제액"><input type="number" style={inp} value={f.totalPaid ?? ""} onChange={(e) => set("totalPaid", e.target.value === "" ? "" : Number(e.target.value))} placeholder="원" /></Field>
+        <Field label="결제횟수"><input type="number" style={inp} value={f.payCount ?? ""} onChange={(e) => set("payCount", e.target.value === "" ? "" : Number(e.target.value))} placeholder="회" /></Field>
+        <Field label="비고"><textarea style={{ ...inp, minHeight: 72, resize: "vertical" }} value={f.memo || ""} onChange={(e) => set("memo", e.target.value)} placeholder="메모" /></Field>
+      </div>
+
       <button disabled={!f.name.trim() || !tail4(f.phone)} onClick={() => onSave(f)} style={{ ...btnGold, width: "100%", justifyContent: "center", marginTop: 8, opacity: f.name.trim() && tail4(f.phone) ? 1 : 0.4 }}><Check size={16} /> 저장</button>
     </Modal>
   );
