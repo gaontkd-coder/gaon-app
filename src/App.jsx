@@ -3,7 +3,7 @@ import {
   Users, CalendarCheck, LayoutDashboard, Plus, Search, Trash2, Pencil,
   X, Check, Copy, ChevronLeft, ChevronRight, LogOut, Shield, User,
   Megaphone, BookOpen, Lock, Flame, Award, KeyRound, Trophy, Medal, Star, BadgeCheck, Download, ClipboardList, Ticket, Video, CalendarX,
-  TrendingUp, Globe, MapPin, Wallet,
+  TrendingUp, Globe, MapPin, Wallet, RefreshCw,
 } from "lucide-react";
 import membersSeed from "../members_seed.json"; // 출석부 시드 (회원 명단 일괄 가져오기)
 
@@ -584,6 +584,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [admin, setAdmin] = useState(null);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     // 서체 주입
@@ -615,6 +616,15 @@ export default function App() {
     try { await sbSave(next); setSaveState("saved"); setTimeout(() => setSaveState("idle"), 1500); }
     catch { setSaveState("error"); }
   };
+  const refresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const sb = await sbLoad();
+      if (sb && Object.keys(sb).length > 0) setData(normalize(sb));
+    } catch {}
+    setRefreshing(false);
+  };
   const wide = useWide();
 
   if (loading || !data) return <Center>불러오는 중…</Center>;
@@ -622,6 +632,7 @@ export default function App() {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: FONT,
       backgroundImage: "radial-gradient(900px circle at 50% -10%, rgba(216,180,90,0.10), transparent 55%)" }}>
+      <style>{"@keyframes gaonSpin{to{transform:rotate(360deg)}}"}</style>
       {saveState !== "idle" && (
         <div style={{ position: "fixed", top: 14, right: 14, zIndex: 100, fontSize: 12, fontWeight: 700, padding: "7px 13px", borderRadius: 10,
           background: saveState === "error" ? "#3a2418" : "#16221a", color: saveState === "error" ? "#e0a86a" : "#7fd6a0", border: `1px solid ${saveState === "error" ? "#5a4022" : "#2a5a3e"}` }}>
@@ -632,7 +643,7 @@ export default function App() {
         {view === "auth" && <Auth data={data}
           onAdmin={(a) => { setAdmin(a); setView("admin"); }}
           onMember={(m) => { setUser(m); setView("member"); }} />}
-        {view === "admin" && admin && <Admin data={data} persist={persist} admin={admin}
+        {view === "admin" && admin && <Admin data={data} persist={persist} admin={admin} refresh={refresh} refreshing={refreshing}
           onViewMember={() => {
             const r = findMemberByNo(data.members, admin.memberNo);
             if (!r.member) { alert("이 관리자 계정에 연결된 회원을 찾을 수 없습니다.\n관리자 탭에서 본인 계정을 열어 '연결 회원번호'를 입력해 주세요. (뒷번호만 입력해도 됩니다)"); return; }
@@ -719,7 +730,7 @@ function Auth({ data, onAdmin, onMember }) {
 }
 
 // ═══════════ 관리자 ═══════════
-function Admin({ data, persist, admin, onLogout, onViewMember }) {
+function Admin({ data, persist, admin, onLogout, onViewMember, refresh, refreshing }) {
   const [tab, setTab] = useState("dashboard");
   const wide = useWide();
   const tabs = [
@@ -759,24 +770,25 @@ function Admin({ data, persist, admin, onLogout, onViewMember }) {
   if (wide) {
     return (
       <div style={{ display: "flex", gap: 28, paddingTop: 26 }}>
-        <Sidebar tabs={tabs} ownerTabs={ownerTabs} tab={tab} setTab={setTab} admin={admin} onLogout={onLogout} onViewMember={onViewMember} />
+        <Sidebar tabs={tabs} ownerTabs={ownerTabs} tab={tab} setTab={setTab} admin={admin} onLogout={onLogout} onViewMember={onViewMember} refresh={refresh} refreshing={refreshing} />
         <div style={{ flex: 1, minWidth: 0 }}>{content}</div>
       </div>
     );
   }
   return (
     <>
-      <TopBar role="관리자" name={admin.name} onLogout={onLogout} />
+      <TopBar role="관리자" name={admin.name} onLogout={onLogout}
+        extra={tab === "dashboard" ? <RefreshButton onClick={refresh} busy={refreshing} /> : null} />
       {tab === "dashboard"
         ? <button onClick={onViewMember} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "11px 0", marginBottom: 14, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><User size={15} /> 수련자 화면 보기 (내 수업·기록)</button>
         : <button onClick={() => setTab("dashboard")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: C.dim, fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}><ChevronLeft size={16} /> 홈</button>}
-      {tab !== "dashboard" && <TabBar tabs={allTabs} tab={tab} setTab={setTab} />}
+      {tab !== "dashboard" && <TabBar tabs={allTabs} tab={tab} setTab={setTab} right={<RefreshButton onClick={refresh} busy={refreshing} />} />}
       {content}
     </>
   );
 }
 
-function Sidebar({ tabs, ownerTabs = [], tab, setTab, admin, onLogout, onViewMember }) {
+function Sidebar({ tabs, ownerTabs = [], tab, setTab, admin, onLogout, onViewMember, refresh, refreshing }) {
   return (
     <aside style={{ width: 212, flexShrink: 0, position: "sticky", top: 26, alignSelf: "flex-start", height: "calc(100vh - 52px)", display: "flex", flexDirection: "column" }}>
       <div style={{ paddingBottom: 18, borderBottom: `1px solid ${C.line}`, marginBottom: 14 }}>
@@ -816,6 +828,7 @@ function Sidebar({ tabs, ownerTabs = [], tab, setTab, admin, onLogout, onViewMem
           </>
         )}
       </nav>
+      {refresh && <div style={{ marginBottom: 8 }}><RefreshButton onClick={refresh} busy={refreshing} full /></div>}
       <button onClick={onViewMember} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", marginBottom: 8, background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer" }}><User size={15} /> 수련자 화면 보기</button>
       <button onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", background: "transparent", border: `1px solid ${C.line}`, borderRadius: 11, color: C.dim, fontSize: 13, fontWeight: 600, cursor: "pointer" }}><LogOut size={15} /> 로그아웃</button>
     </aside>
@@ -3812,19 +3825,35 @@ function TopBar({ role, name, onLogout, logoutLabel, extra }) {
     </header>
   );
 }
-function TabBar({ tabs, tab, setTab }) {
+function TabBar({ tabs, tab, setTab, right }) {
   return (
-    <nav style={{ display: "flex", gap: 5, margin: "18px 0 22px", overflowX: "auto", paddingBottom: 2 }}>
-      {tabs.map(([id, label, Icon]) => {
-        const on = tab === id;
-        return (
-          <button key={id} onClick={() => setTab(id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 15px", whiteSpace: "nowrap",
-            background: on ? C.goldGrad : "transparent", color: on ? "#1a1305" : C.dim,
-            border: `1px solid ${on ? "transparent" : C.line}`, borderRadius: 11, fontSize: 13, fontWeight: 700, cursor: "pointer",
-            boxShadow: on ? "0 4px 14px rgba(216,180,90,0.22)" : "none" }}><Icon size={15} /> {label}</button>
-        );
-      })}
-    </nav>
+    <div style={{ position: "sticky", top: 0, zIndex: 60, background: C.bg, display: "flex", alignItems: "center", gap: 8,
+      margin: "0 0 18px", padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
+      <nav style={{ display: "flex", gap: 5, overflowX: "auto", paddingBottom: 2, flex: 1, minWidth: 0 }}>
+        {tabs.map(([id, label, Icon]) => {
+          const on = tab === id;
+          return (
+            <button key={id} onClick={() => setTab(id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 15px", whiteSpace: "nowrap",
+              background: on ? C.goldGrad : "transparent", color: on ? "#1a1305" : C.dim,
+              border: `1px solid ${on ? "transparent" : C.line}`, borderRadius: 11, fontSize: 13, fontWeight: 700, cursor: "pointer",
+              boxShadow: on ? "0 4px 14px rgba(216,180,90,0.22)" : "none" }}><Icon size={15} /> {label}</button>
+          );
+        })}
+      </nav>
+      {right}
+    </div>
+  );
+}
+function RefreshButton({ onClick, busy, full }) {
+  return (
+    <button onClick={onClick} disabled={busy} title="Supabase에서 최신 데이터 다시 불러오기"
+      style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, flexShrink: 0,
+        width: full ? "100%" : "auto", height: full ? "auto" : 38, padding: full ? "11px 14px" : "0 13px",
+        background: "transparent", border: `1px solid ${C.gold}`, borderRadius: 11, color: C.gold,
+        fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1, whiteSpace: "nowrap", fontFamily: FONT }}>
+      <RefreshCw size={15} style={{ animation: busy ? "gaonSpin 0.8s linear infinite" : "none" }} />
+      {busy ? "불러오는 중…" : "새로고침"}
+    </button>
   );
 }
 function DayBadge({ day, date, color, big }) {
